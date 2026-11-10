@@ -40,6 +40,7 @@ export async function render(main, { q }) {
       const late = r.tinh_trang !== 'da_xu_ly' && age >= h;
       return `<div class="lc" style="cursor:default">
         <div class="lc-row"><b>${esc(cat.mayLabel(r.phieu.may_id))}</b>${ttBadge(r.tinh_trang)}</div>
+        ${r.phieu.day_chuyen_id ? `<div class="t-cap">Dây chuyền: ${esc(cat.name('day_chuyen', r.phieu.day_chuyen_id))}</div>` : ''}
         <div class="lc-row"><span>${esc(r.ten_loi || '')} <span class="chip nn-mono">${esc(r.ma_loi || '')}</span></span><span class="muted">${r.phut} phút</span></div>
         <div class="lc-row t-cap"><span>${fmtDate(r.phieu.ngay)} · ${esc(cat.name('ca', r.phieu.ca_id))} · ${hm(r.gio_bd)}–${hm(r.gio_kt)} · ${esc(NHOM_TT[r.dung_ngan ? 3 : r.nhom_ton_that] || '')}</span>
           <span>Xử lý: ${esc(cat.person(r.nguoi_xu_ly_id) || 'chưa giao')}</span></div>

@@ -86,6 +86,12 @@ export function selectField({ label, value = '', options = [], req, placeholder 
   const s = $('select', f);
   if (onChange) s.addEventListener('change', () => onChange(s.value, f));
   f.input = s;
+  /** Đổi danh sách lựa chọn (giữ giá trị cũ nếu còn hợp lệ) */
+  f.setOptions = (opts, v) => {
+    const cur = v !== undefined ? v : s.value;
+    s.innerHTML = `<option value="">${esc(placeholder)}</option>` + opts.map((o) => `<option value="${esc(o.value)}">${esc(o.label)}</option>`).join('');
+    s.value = opts.some((o) => String(o.value) === String(cur)) ? cur : '';
+  };
   return f;
 }
 

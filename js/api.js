@@ -67,7 +67,7 @@ export const can = {
 
 // ---------- Danh mục ----------
 const TABLES = ['nha_may', 'bo_phan', 'khu_vuc', 'may', 'ma_loi', 'ly_do_ke_hoach', 'san_pham', 'toc_do', 'ca',
-  'day_chuyen', 'day_chuyen_may', 'nhan_su', 'cai_dat'];
+  'day_chuyen', 'day_chuyen_may', 'nhan_su', 'cai_dat', 'may_san_pham', 'day_chuyen_san_pham', 'toc_do_day_chuyen'];
 
 async function fetchAll(table, build = (q) => q) {
   const out = [];
@@ -118,15 +118,37 @@ export const cat = {
   tocDo: (mayId, spId) => S.cat.toc_do.find((t) => t.may_id === mayId && t.san_pham_id === spId)?.sp_phut ?? null,
   caiDat: () => S.cat.byId.cai_dat[S.nm] || { nguong_dung_ngan: 5, gio_qua_han: 4 },
   dayChuyen: () => S.cat.day_chuyen.filter((d) => d.nha_may_id === S.nm && d.hoat_dong),
+  caiDatOf: (nmId) => S.cat.byId.cai_dat[nmId] || { nguong_dung_ngan: 5, gio_qua_han: 4 },
+  /** Dây chuyền (đang dùng) mà máy thuộc về, hoặc null nếu là máy đơn */
+  lineOfMay: (mayId) => {
+    return S.cat.day_chuyen_may.filter((r) => r.may_id === mayId).map((r) => S.cat.byId.day_chuyen[r.day_chuyen_id]).find((l) => l && l.hoat_dong) || null;
+  },
+  members: (lineId) => S.cat.day_chuyen_may.filter((x) => x.day_chuyen_id === lineId).sort((a, b) => a.thu_tu - b.thu_tu),
+  lastMay: (lineId) => { const m = cat.members(lineId); return (m.find((x) => x.la_may_cuoi) || m[m.length - 1])?.may_id || null; },
+  /** Máy đơn: không thuộc dây chuyền nào đang dùng */
+  mayDon: (all) => cat.may(all).filter((m) => !cat.lineOfMay(m.id)),
+  /** Tốc độ định mức: t = {day_chuyen_id} -> theo dây chuyền; t = {may_id} -> theo máy */
+  tocDoChuyen: (lineId, spId) => S.cat.toc_do_day_chuyen.find((t) => t.day_chuyen_id === lineId && t.san_pham_id === spId)?.sp_phut ?? null,
+  speedFor: (t, spId) => (t.day_chuyen_id ? cat.tocDoChuyen(t.day_chuyen_id, spId) : t.may_id ? cat.tocDo(t.may_id, spId) : null),
+  /** Sản phẩm của máy / dây chuyền (chưa gán gì thì hiện tất cả sản phẩm của nhà máy) */
+  sanPhamFor: (t) => {
+    const ids = t.day_chuyen_id ? S.cat.day_chuyen_san_pham.filter((x) => x.day_chuyen_id === t.day_chuyen_id).map((x) => x.san_pham_id)
+      : t.may_id ? S.cat.may_san_pham.filter((x) => x.may_id === t.may_id).map((x) => x.san_pham_id) : [];
+    const all = cat.sanPham();
+    return ids.length ? all.filter((s) => ids.includes(s.id)) : all;
+  },
   name: (t, id, f = 'ten') => S.cat.byId[t]?.[id]?.[f] ?? '',
   person: (id) => S.cat.byId.nhan_su?.[id]?.ho_ten ?? '',
   mayLabel: (id) => { const m = S.cat.byId.may[id]; return m ? `${m.ma} · ${m.ten}` : '—'; },
 };
 
 // ---------- Phiếu ----------
-export async function fetchPhieu({ from, to, mayId } = {}) {
-  return fetchAll('phieu', (q) => {
-    q = sb.from('phieu').select('*, dung_may(*), dung_ke_hoach(*)').eq('nha_may_id', S.nm).gte('ngay', from).lte('ngay', to).order('ngay').order('id');
+/** nm: id nhà máy (mặc định nhà máy đang chọn); nm = '' -> mọi nhà máy (chỉ admin tổng thấy hết nhờ RLS) */
+export async function fetchPhieu({ from, to, mayId, nm } = {}) {
+  const nmId = nm === undefined ? S.nm : nm;
+  return fetchAll('phieu', () => {
+    let q = sb.from('phieu').select('*, dung_may(*), dung_ke_hoach(*)').gte('ngay', from).lte('ngay', to).order('ngay').order('id');
+    if (nmId) q = q.eq('nha_may_id', nmId);
     if (mayId) q = q.eq('may_id', mayId);
     return q;
   });
@@ -140,27 +162,42 @@ export async function getPhieu(id) {
 
 export async function fetchOpenFaults() {
   const { data, error } = await sb.from('dung_may')
-    .select('*, phieu!inner(id, ngay, ca_id, may_id, nha_may_id, trang_thai, created_at, nguoi_van_hanh_id, gio_bd)')
-    .eq('phieu.nha_may_id', S.nm).neq('tinh_trang', 'da_xu_ly').order('created_at', { ascending: false }).limit(1000);
+    .select('*, phieu!inner(id, ngay, ca_id, may_id, nha_may_id, trang_thai, created_at, nguoi_van_hanh_id, gio_bd, day_chuyen_id, nhom_id)')
+    .eq('goc', true).eq('phieu.nha_may_id', S.nm).neq('tinh_trang', 'da_xu_ly').order('created_at', { ascending: false }).limit(1000);
   if (error) throw error;
   return data;
 }
 
 export async function fetchFaults({ from, to }) {
   const { data, error } = await sb.from('dung_may')
-    .select('*, phieu!inner(id, ngay, ca_id, may_id, nha_may_id, trang_thai, created_at, nguoi_van_hanh_id, gio_bd)')
-    .eq('phieu.nha_may_id', S.nm).gte('phieu.ngay', from).lte('phieu.ngay', to).order('created_at', { ascending: false }).limit(5000);
+    .select('*, phieu!inner(id, ngay, ca_id, may_id, nha_may_id, trang_thai, created_at, nguoi_van_hanh_id, gio_bd, day_chuyen_id, nhom_id)')
+    .eq('goc', true).eq('phieu.nha_may_id', S.nm).gte('phieu.ngay', from).lte('phieu.ngay', to).order('created_at', { ascending: false }).limit(5000);
   if (error) throw error;
   return data;
 }
 
+const PHIEU_SEL = '*, dung_may(*), dung_ke_hoach(*)';
+/** Phiếu dây chuyền: trả về tất cả phiếu con cùng nhóm. Phiếu máy đơn: mảng 1 phần tử. Không có: mảng rỗng. */
+export async function getPhieuGroup(id) {
+  let { data, error } = await sb.from('phieu').select(PHIEU_SEL).eq('nhom_id', id);
+  if (error) throw error;
+  if (data.length) return data;
+  const p = await getPhieu(id);
+  if (!p) return [];
+  if (!p.nhom_id) return [p];
+  ({ data, error } = await sb.from('phieu').select(PHIEU_SEL).eq('nhom_id', p.nhom_id));
+  if (error) throw error;
+  return data;
+}
+
+const rpcName = (body) => (body.day_chuyen_id ? 'luu_phieu_chuyen' : 'luu_phieu');
 const clean = (p) => Object.fromEntries(Object.entries(p).filter(([k]) => !k.startsWith('_')));
 
 /** Gửi phiếu: có mạng thì gửi ngay, mất mạng thì đưa vào hàng đợi */
 export async function submitPhieu(p) {
   const body = clean(p);
   if (!navigator.onLine) { queue.push(body); drafts.del(p.id); return { queued: true }; }
-  const { data, error } = await sb.rpc('luu_phieu', { p: body });
+  const { data, error } = await sb.rpc(rpcName(body), { p: body });
   if (error) {
     if (isNetErr(error)) { queue.push(body); drafts.del(p.id); return { queued: true }; }
     throw error;
@@ -177,7 +214,7 @@ export async function flushQueue({ retryErrors = false } = {}) {
   try {
     for (const item of queue.all()) {
       if (item._error && !retryErrors) continue;
-      const { error } = await sb.rpc('luu_phieu', { p: clean(item) });
+      const { error } = await sb.rpc(rpcName(item), { p: clean(item) });
       if (!error) { queue.remove(item.id); deleteDraftServer(item.id); sent++; }
       else if (isNetErr(error)) break;
       else { queue.setError(item.id, errText(error)); failed++; }

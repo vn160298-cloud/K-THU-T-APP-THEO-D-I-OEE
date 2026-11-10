@@ -87,14 +87,14 @@ export async function render(main) {
       'Tổng SL': a.tong, 'SL đạt': a.good, 'Lỗi khởi động': a.kd, 'Lỗi quá trình': a.qt, 'Mục tiêu OEE (%)': m.oee_muc_tieu,
     })));
     add('Phieu', rows.map(({ p, c }) => ({
-      'Ngày': fmtDate(p.ngay), 'Mã máy': cat.name('may', p.may_id, 'ma'), 'Bộ phận': cat.name('bo_phan', p.bo_phan_id), 'Ca': cat.name('ca', p.ca_id), 'Sản phẩm': cat.name('san_pham', p.san_pham_id),
+      'Ngày': fmtDate(p.ngay), 'Mã máy': cat.name('may', p.may_id, 'ma'), 'Dây chuyền': cat.name('day_chuyen', p.day_chuyen_id), 'Bộ phận': cat.name('bo_phan', p.bo_phan_id), 'Ca': cat.name('ca', p.ca_id), 'Sản phẩm': cat.name('san_pham', p.san_pham_id),
       'Tốc độ ĐM (sp/phút)': p.toc_do_dm, 'Giờ BĐ': hm(p.gio_bd), 'Giờ KT': hm(p.gio_kt), 'Nghỉ (phút)': p.nghi_phut, 'Dừng KH (phút)': c.keHoach, 'PPT (phút)': c.ppt,
       'Dừng tổn thất (phút)': c.stopLoss, 'Chạy (phút)': c.run, 'Tổng SL': p.tong_sl, 'Lỗi KĐ': p.sl_loi_kd, 'Lỗi QT': p.sl_loi_qt, 'SL đạt': c.good,
       'A (%)': r1(c.A), 'P (%)': r1(c.P), 'Q (%)': r1(c.Q), 'OEE (%)': r1(c.OEE),
       'Vận hành': cat.person(p.nguoi_van_hanh_id), 'Tổ trưởng': cat.person(p.to_truong_id), 'Kỹ thuật': cat.person(p.ky_thuat_id),
       'Trạng thái': TRANG_THAI_PHIEU[p.trang_thai]?.label, 'Ghi chú': p.ghi_chu || '',
     })));
-    add('DungMay', rows.flatMap(({ p }) => (p.dung_may || []).sort((a, b) => a.stt - b.stt).map((s) => ({
+    add('DungMay', rows.flatMap(({ p }) => (p.dung_may || []).filter((s) => s.goc !== false).sort((a, b) => a.stt - b.stt).map((s) => ({
       'Ngày': fmtDate(p.ngay), 'Mã máy': cat.name('may', p.may_id, 'ma'), 'Ca': cat.name('ca', p.ca_id), 'Lần': s.stt, 'Mã lỗi': s.ma_loi, 'Tên lỗi': s.ten_loi,
       'Nhóm tổn thất': NHOM_TT[s.dung_ngan ? 3 : s.nhom_ton_that], 'Loại lỗi': s.loai_loi, 'Từ': hm(s.gio_bd), 'Đến': hm(s.gio_kt), 'Phút': s.phut, 'Dừng ngắn': s.dung_ngan ? 'Có' : '',
       'Vấn đề chất lượng': s.van_de_cl || '', 'Người xử lý': cat.person(s.nguoi_xu_ly_id), 'Tình trạng': TINH_TRANG[s.tinh_trang]?.label, 'Ghi chú': s.ghi_chu || '', 'Ghi chú xử lý': s.ghi_chu_xu_ly || '',

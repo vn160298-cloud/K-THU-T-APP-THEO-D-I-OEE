@@ -1,6 +1,6 @@
 // Lịch tháng: mỗi ngày tô màu theo OEE, kèm số lỗi chưa xử lý — bấm ngày để xem phiếu
 import { S, cat, fetchFaults, errText } from '../api.js';
-import { loadCalc } from '../data.js';
+import { loadCalc, groupEntries } from '../data.js';
 import { aggregate } from '../kpi.js';
 import { esc, icon, today, monthStart, monthEnd, parseISO, toISO, MONTHS, fmtPct, oeeLevel, badge } from '../lib.js';
 import { $, calendarGrid, selectField, comboField } from '../ui.js';
@@ -44,7 +44,7 @@ export async function render(main, { q }) {
         const a = aggregate(day.map((r) => r.c));
         const lv = oeeLevel(a.OEE);
         const nf = fl.filter((f) => f.phieu.ngay === iso).length;
-        return { cls: lv || '', html: `<span class="cd-v">${a.OEE == null ? '—' : fmtPct(a.OEE, 0)}</span><span class="cd-v muted">${day.length} phiếu</span>${nf ? `<span class="cd-v nn-tone-danger">${nf} lỗi mở</span>` : ''}` };
+        return { cls: lv || '', html: `<span class="cd-v">${a.OEE == null ? '—' : fmtPct(a.OEE, 0)}</span><span class="cd-v muted">${groupEntries(day).length} phiếu</span>${nf ? `<span class="cd-v nn-tone-danger">${nf} lỗi mở</span>` : ''}` };
       },
     });
   }

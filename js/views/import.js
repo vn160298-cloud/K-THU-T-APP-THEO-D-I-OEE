@@ -90,7 +90,7 @@ function parse(wb) {
     const s = sp.find((x) => k(x.ma) === k(r.MaSanPham) || k(x.ten) === k(r.MaSanPham));
     if (r.MaSanPham && !s) errors.push(`Không có sản phẩm "${r.MaSanPham}"`);
     const ngay = dateOf(r.Ngay); if (!ngay) errors.push('Sai ngày');
-    const speed = numOf(r.TocDo_sp_phut) || (m && s ? cat.tocDo(m.id, s.id) : null);
+    const speed = numOf(r.TocDo_sp_phut) || (m && s ? cat.speedFor({ may_id: m.id, day_chuyen_id: cat.lineOfMay(m.id)?.id }, s.id) : null);
     if (!speed) errors.push('Thiếu tốc độ định mức');
     const gbd = timeOf(r.GioBatDau) || (c && hm(c.gio_bd)), gkt = timeOf(r.GioKetThuc) || (c && hm(c.gio_kt));
     const tong = intOf(r.TongSL); if (tong == null) errors.push('Thiếu tổng SL');
