@@ -1,0 +1,417 @@
+// Ghi phiếu vận hành: danh sách nháp, form phiếu (tự lưu, ngoại tuyến), chi tiết phiếu
+import { S, cat, can, submitPhieu, saveDraftServer, deleteDraftServer, getPhieu, flushQueue, rpc, errText } from '../api.js';
+import { drafts, queue } from '../store.js';
+import { calcPhieu } from '../kpi.js';
+import {
+  esc, icon, uuid, today, nowHM, hm, fmtDate, fmtNum, fmtPct, fmtMin, minutesBetween, timeInRange, toNum, toInt,
+  NHOM_TT, TINH_TRANG, ttBadge, phieuBadge, oeeBadge, debounce, fmtDateTime, VAI_TRO,
+} from '../lib.js';
+import {
+  el, $, $$, toast, confirmBox, inputField, selectField, comboField, dateField, textField, setFieldError, kpiCard,
+} from '../ui.js';
+import { go, drawHeader } from '../app.js';
+import { openFaultUpdate, shareZalo } from './faults.js';
+
+export async function render(main, { route, params }) {
+  if (route === 'phieu') {
+    if (params[1] === 'sua') return editServer(main, params[0]);
+    return detail(main, params[0]);
+  }
+  if (params[0] === 'moi') return form(main, newDraft());
+  if (params[0] === 'nhap') {
+    let d = drafts.get(params[1]);
+    const q = queue.all().find((x) => x.id === params[1]);
+    if (q) { d = { ...(d || {}), ...q }; queue.remove(q.id); drawHeader(); } // mở lại phiếu chờ gửi để sửa -> thành nháp
+    if (!d) { toast('Không tìm thấy phiếu nháp', 'warning'); return go('#/ghi-phieu'); }
+    return form(main, d);
+  }
+  return hub(main);
+}
+
+// ================= DANH SÁCH NHÁP & CHỜ GỬI =================
+function hub(main) {
+  const ds = drafts.list(), qs = queue.all();
+  main.innerHTML = `<div class="page-head"><div><div class="t-page">Ghi phiếu</div>
+    <div class="muted">Phiếu ghi dở được tự lưu theo tài khoản — thoát app vẫn còn</div></div>
+    ${can.ghiPhieu() ? `<a class="nn-btn nn-btn-primary nn-btn-lg" href="#/ghi-phieu/moi">${icon('plus', 20)}Tạo phiếu mới</a>` : ''}</div>
+    ${qs.length ? `<section class="card section"><div class="card-head"><div class="t-h2">Chờ gửi lên máy chủ (${qs.length})</div>
+      <button class="nn-btn nn-btn-secondary nn-btn-md" data-retry>${icon('sync', 18)}Gửi lại</button></div>
+      <div class="list-cards">${qs.map((q) => itemCard(q, true)).join('')}</div></section>` : ''}
+    <section class="card section"><div class="card-head"><div class="t-h2">Phiếu đang ghi dở (${ds.length})</div></div>
+      ${ds.length ? `<div class="list-cards">${ds.map((d) => itemCard(d)).join('')}</div>` : '<div class="empty">Không có phiếu nháp</div>'}</section>`;
+  main.onclick = async (e) => {
+    const c = e.target.closest('[data-open]');
+    if (c) go(`#/ghi-phieu/nhap/${c.dataset.open}`);
+    if (e.target.closest('[data-retry]')) {
+      const r = await flushQueue({ retryErrors: true });
+      toast(r.sent ? `Đã gửi ${r.sent} phiếu` : S.online ? 'Chưa gửi được — xem lỗi từng phiếu' : 'Đang mất mạng', r.sent ? 'success' : 'warning');
+      drawHeader(); hub(main);
+    }
+  };
+}
+
+function itemCard(d, isQueue) {
+  const nm = cat.mayLabel(d.may_id);
+  return `<div class="lc" data-open="${d.id}" role="button" tabindex="0">
+    <div class="lc-row"><b>${esc(nm)}</b>${isQueue ? (d._error ? `<span class="nn-status nn-tone-danger">${icon('fail', 14)}Lỗi gửi</span>` : phieuBadge('cho_dong_bo')) : phieuBadge('nhap')}</div>
+    <div class="lc-row muted"><span>${fmtDate(d.ngay)} · ${esc(cat.name('ca', d.ca_id) || 'Chưa chọn ca')}</span><span>${(d.dung_may || []).length} lần dừng</span></div>
+    ${d._error ? `<div class="nn-alert nn-alert-danger" style="padding:8px 12px"><span class="nn-alert-icon nn-tone-danger">${icon('fail', 16)}</span><div class="nn-alert-body"><div class="nn-alert-text">${esc(d._error)} — bấm để sửa rồi gửi lại</div></div></div>` : ''}
+    ${d._edit ? '<span class="chip">Đang sửa phiếu đã gửi</span>' : ''}
+  </div>`;
+}
+
+// ================= PHIẾU MỚI =================
+function newDraft() {
+  const me = S.profile;
+  return {
+    id: uuid(), ngay: today(), bo_phan_id: me.bo_phan_id || cat.boPhan()[0]?.id || '', may_id: '', ca_id: '', san_pham_id: '', toc_do_dm: null,
+    nguoi_van_hanh_id: me.vai_tro === 'van_hanh' ? me.id : '', to_truong_id: me.vai_tro === 'to_truong' ? me.id : '', ky_thuat_id: '',
+    gio_bd: '', gio_kt: '', nghi_phut: 0, tong_sl: null, sl_loi_kd: 0, sl_loi_qt: 0, ghi_chu: '',
+    ke_hoach: [], dung_may: [], created_at: new Date().toISOString(),
+  };
+}
+
+const toDraft = (p) => ({
+  id: p.id, ngay: p.ngay, bo_phan_id: p.bo_phan_id, may_id: p.may_id, ca_id: p.ca_id, san_pham_id: p.san_pham_id || '', toc_do_dm: p.toc_do_dm,
+  nguoi_van_hanh_id: p.nguoi_van_hanh_id || '', to_truong_id: p.to_truong_id || '', ky_thuat_id: p.ky_thuat_id || '',
+  gio_bd: hm(p.gio_bd), gio_kt: hm(p.gio_kt), nghi_phut: p.nghi_phut, tong_sl: p.tong_sl, sl_loi_kd: p.sl_loi_kd, sl_loi_qt: p.sl_loi_qt,
+  ghi_chu: p.ghi_chu || '', created_at: p.created_at, _edit: true, _trang_thai: p.trang_thai,
+  ke_hoach: (p.dung_ke_hoach || []).map((k) => ({ ly_do_id: k.ly_do_id, ly_do_ten: k.ly_do_ten, gio_bd: hm(k.gio_bd), gio_kt: hm(k.gio_kt) })),
+  dung_may: (p.dung_may || []).sort((a, b) => a.stt - b.stt).map((d) => ({
+    id: d.id, stt: d.stt, ma_loi_id: d.ma_loi_id, ma_loi: d.ma_loi, ten_loi: d.ten_loi, nhom_ton_that: d.nhom_ton_that, loai_loi: d.loai_loi,
+    gio_bd: hm(d.gio_bd), gio_kt: hm(d.gio_kt), van_de_cl: d.van_de_cl || '', nguoi_xu_ly_id: d.nguoi_xu_ly_id || '', tinh_trang: d.tinh_trang, ghi_chu: d.ghi_chu || '',
+  })),
+});
+
+async function editServer(main, id) {
+  const local = drafts.get(id);
+  if (local) return form(main, local);
+  const p = await getPhieu(id);
+  if (!p) throw new Error('Không tìm thấy phiếu');
+  if (p.trang_thai === 'da_xac_nhan' && !can.suaKhoa()) throw new Error('Phiếu đã khóa — chỉ quản lý hoặc admin được sửa');
+  return form(main, toDraft(p));
+}
+
+// ================= FORM =================
+function form(main, d) {
+  const ngan = cat.caiDat().nguong_dung_ngan || 5;
+  const save = debounce(() => { const s = drafts.put(d); saveDraftServer(s); $('[data-saved]', main) && ($('[data-saved]', main).textContent = `Đã tự lưu lúc ${nowHM()}`); }, 500);
+  const changed = () => { save(); preview(); };
+
+  const machines = () => cat.may().filter((m) => !d.bo_phan_id || m.bo_phan_id === d.bo_phan_id);
+  const curMay = () => S.cat.byId.may[d.may_id];
+  const people = (roles) => cat.nhanSu(roles).map((n) => ({ value: n.id, label: n.ho_ten, sub: `${n.ma_nv} · ${VAI_TRO[n.vai_tro]}` }));
+
+  const applyCa = () => {
+    const c = S.cat.byId.ca[d.ca_id];
+    if (c) { d.gio_bd = hm(c.gio_bd); d.gio_kt = hm(c.gio_kt); d.nghi_phut = c.nghi_phut; }
+  };
+  const pickDefaultCa = () => {
+    const list = cat.ca(curMay()?.bo_phan_id || d.bo_phan_id);
+    const now = nowHM();
+    const c = list.find((x) => timeInRange(now, hm(x.gio_bd), hm(x.gio_kt))) || list[0];
+    d.ca_id = c?.id || ''; applyCa();
+  };
+  const applySpeed = () => {
+    const v = d.may_id && d.san_pham_id ? cat.tocDo(d.may_id, d.san_pham_id) : null;
+    if (v != null) d.toc_do_dm = v;
+  };
+
+  function build() {
+    const locked = d._trang_thai === 'da_xac_nhan';
+    main.innerHTML = `<div class="page-head"><div><div class="t-page">${d._edit ? 'Sửa phiếu' : 'Phiếu ghi nhận vận hành'}</div>
+      <div class="t-cap" data-saved>${d._savedAt ? `Đã tự lưu lúc ${fmtDateTime(d._savedAt).slice(11)}` : 'Tự lưu khi nhập'}</div></div>
+      <a class="nn-btn nn-btn-ghost nn-btn-md" href="#/ghi-phieu">${icon('chevL', 18)}Danh sách nháp</a></div>
+      ${d._error ? `<div class="nn-alert nn-alert-danger section" role="alert"><span class="nn-alert-icon nn-tone-danger">${icon('fail', 20)}</span><div class="nn-alert-body"><div class="nn-alert-title">Lần gửi trước bị từ chối</div><div class="nn-alert-text">${esc(d._error)}</div></div></div>` : ''}
+      ${locked ? `<div class="nn-alert nn-alert-warning section"><span class="nn-alert-icon nn-tone-warning">${icon('lock', 20)}</span><div class="nn-alert-body"><div class="nn-alert-text">Phiếu đã khóa — bạn đang sửa với quyền ${esc(VAI_TRO[S.profile.vai_tro])}</div></div></div>` : ''}
+      <section class="card section"><div class="card-head"><div class="t-h2">Thông tin chung</div></div><div class="form-grid" data-g1></div></section>
+      <section class="card section"><div class="card-head"><div class="t-h2">Thời gian & sản lượng</div><span class="chip" data-capinfo></span></div><div class="form-grid" data-g2></div></section>
+      <section class="card section"><div class="card-head"><div><div class="t-h2">Dừng có kế hoạch</div><div class="t-cap">Nghỉ ăn, họp đầu ca, bảo trì định kỳ, không có đơn hàng — không tính vào tổn thất</div></div>
+        <button class="nn-btn nn-btn-secondary nn-btn-md" data-addkh>${icon('plus', 18)}Thêm</button></div><div data-kh></div></section>
+      <section class="card section"><div class="card-head"><div><div class="t-h2">Các lần dừng máy</div><div class="t-cap">Chọn tên lỗi — mã lỗi, nhóm tổn thất, loại lỗi tự điền. Dưới ${ngan} phút tự tính là dừng ngắn</div></div>
+        <button class="nn-btn nn-btn-secondary nn-btn-md" data-addstop>${icon('plus', 18)}Thêm lần dừng</button></div><div data-stops></div></section>
+      <section class="card section"><div class="form-grid" data-g3></div></section>
+      <section class="card section"><div class="card-head"><div class="t-h2">Chỉ số tạm tính của phiếu</div></div><div class="grid-kpi" data-preview></div></section>
+      <section class="card section no-print"><div class="nn-row" style="padding:0;justify-content:flex-end">
+        <button class="nn-btn nn-btn-secondary nn-btn-lg" data-del>${icon('trash', 18)}${d._edit ? 'Hủy sửa' : 'Xóa nháp'}</button>
+        ${can.xacNhan() && !locked ? `<label class="nn-row" style="padding:0;gap:8px"><input type="checkbox" data-confirm style="width:22px;height:22px"> Xác nhận và khóa phiếu luôn</label>` : ''}
+        <button class="nn-btn nn-btn-primary nn-btn-lg" data-submit>${icon('pass', 20)}Gửi phiếu</button></div></section>`;
+
+    // --- Thông tin chung
+    const g1 = $('[data-g1]', main);
+    g1.append(
+      selectField({ label: 'Bộ phận', value: d.bo_phan_id, req: true, options: cat.boPhan().map((b) => ({ value: b.id, label: b.ten })),
+        onChange: (v) => { d.bo_phan_id = v; if (curMay() && curMay().bo_phan_id !== v) d.may_id = ''; changed(); build(); } }),
+      comboField({ label: 'Máy / Line', value: d.may_id, req: true, options: machines().map((m) => ({ value: m.id, label: `${m.ma} · ${m.ten}`, group: cat.name('khu_vuc', m.khu_vuc_id) || '' })),
+        onChange: (v) => {
+          d.may_id = v;
+          const m = curMay(); if (m) d.bo_phan_id = m.bo_phan_id || d.bo_phan_id;
+          const okCodes = new Set(cat.maLoi(v).map((x) => x.id));
+          d.dung_may.forEach((s) => { if (s.ma_loi_id && !okCodes.has(s.ma_loi_id)) Object.assign(s, { ma_loi_id: '', ma_loi: '', ten_loi: '', nhom_ton_that: null, loai_loi: '' }); });
+          if (!cat.ca(m?.bo_phan_id).some((c) => c.id === d.ca_id)) pickDefaultCa();
+          d.toc_do_dm = null; applySpeed(); changed(); build();
+        } }),
+      dateField({ label: 'Ngày', value: d.ngay, req: true, onChange: (v) => { d.ngay = v; changed(); } }),
+      selectField({ label: 'Ca', value: d.ca_id, req: true, options: cat.ca(curMay()?.bo_phan_id || d.bo_phan_id).map((c) => ({ value: c.id, label: `${c.ten} (${hm(c.gio_bd)}–${hm(c.gio_kt)})` })),
+        onChange: (v) => { d.ca_id = v; applyCa(); changed(); build(); } }),
+      comboField({ label: 'Sản phẩm', value: d.san_pham_id, req: true, options: cat.sanPham().map((s) => ({ value: s.id, label: s.ten, sub: s.ma })),
+        onChange: (v) => { d.san_pham_id = v; d.toc_do_dm = null; applySpeed(); changed(); build(); } }),
+    );
+    const fixedSpeed = d.may_id && d.san_pham_id && cat.tocDo(d.may_id, d.san_pham_id) != null;
+    g1.append(inputField({ label: 'Tốc độ định mức', value: d.toc_do_dm ?? '', unit: 'sp/phút', inputmode: 'decimal', readonly: fixedSpeed, req: true,
+      msg: fixedSpeed ? 'Tự điền theo máy và sản phẩm' : 'Chưa khai báo cho máy + sản phẩm này — nhập tạm hoặc báo Admin',
+      onInput: (v) => { d.toc_do_dm = toNum(v); changed(); } }));
+    g1.append(
+      comboField({ label: 'Người vận hành', value: d.nguoi_van_hanh_id, options: people(), onChange: (v) => { d.nguoi_van_hanh_id = v; changed(); } }),
+      comboField({ label: 'Tổ trưởng', value: d.to_truong_id, options: people(['to_truong', 'quan_ly']), onChange: (v) => { d.to_truong_id = v; changed(); } }),
+      comboField({ label: 'Kỹ thuật', value: d.ky_thuat_id, options: people(['ky_thuat']), onChange: (v) => { d.ky_thuat_id = v; changed(); } }),
+    );
+
+    // --- Thời gian & sản lượng
+    const g2 = $('[data-g2]', main);
+    const capInfo = () => { $('[data-capinfo]', main).textContent = `Thời gian ca: ${fmtMin(minutesBetween(d.gio_bd, d.gio_kt))}`; };
+    g2.append(
+      inputField({ label: 'Giờ bắt đầu', type: 'time', value: d.gio_bd, req: true, onInput: (v) => { d.gio_bd = v; capInfo(); changed(); } }),
+      inputField({ label: 'Giờ kết thúc', type: 'time', value: d.gio_kt, req: true, onInput: (v) => { d.gio_kt = v; capInfo(); changed(); } }),
+      inputField({ label: 'Nghỉ giữa ca', value: d.nghi_phut ?? 0, unit: 'phút', inputmode: 'numeric', onInput: (v) => { d.nghi_phut = toInt(v) || 0; changed(); } }),
+      inputField({ label: 'Tổng sản lượng', value: d.tong_sl ?? '', unit: 'sp', inputmode: 'numeric', req: true, msg: 'Gồm cả hàng lỗi', onInput: (v) => { d.tong_sl = toInt(v); changed(); } }),
+      inputField({ label: 'SL lỗi khởi động', value: d.sl_loi_kd ?? 0, unit: 'sp', inputmode: 'numeric', onInput: (v) => { d.sl_loi_kd = toInt(v) || 0; changed(); } }),
+      inputField({ label: 'SL lỗi trong quá trình', value: d.sl_loi_qt ?? 0, unit: 'sp', inputmode: 'numeric', onInput: (v) => { d.sl_loi_qt = toInt(v) || 0; changed(); } }),
+    );
+    capInfo();
+
+    // --- Dừng có kế hoạch
+    const kh = $('[data-kh]', main);
+    if (!d.ke_hoach.length) kh.innerHTML = '<div class="t-cap">Không có</div>';
+    d.ke_hoach.forEach((k, i) => {
+      const row = el(`<div class="stop"><div class="form-grid"></div></div>`);
+      const g = $('.form-grid', row);
+      const mins = el(`<span class="chip">${fmtMin(minutesBetween(k.gio_bd, k.gio_kt))}</span>`);
+      const upd = () => { mins.textContent = fmtMin(minutesBetween(k.gio_bd, k.gio_kt)); changed(); };
+      g.append(
+        selectField({ label: 'Lý do', value: k.ly_do_id, options: cat.lyDo().map((l) => ({ value: l.id, label: l.ten })), onChange: (v) => { k.ly_do_id = v; changed(); } }),
+        inputField({ label: 'Bắt đầu', type: 'time', value: k.gio_bd, onInput: (v) => { k.gio_bd = v; upd(); } }),
+        inputField({ label: 'Kết thúc', type: 'time', value: k.gio_kt, onInput: (v) => { k.gio_kt = v; upd(); } }),
+      );
+      const act = el(`<div class="nn-row" style="padding:8px 0 0;justify-content:space-between"></div>`);
+      act.append(mins, el(`<button class="nn-btn nn-btn-ghost nn-btn-sm" data-rmkh="${i}">${icon('trash', 16)}Xóa</button>`));
+      row.append(act);
+      kh.append(row);
+    });
+
+    // --- Dừng máy
+    const st = $('[data-stops]', main);
+    if (!d.dung_may.length) st.innerHTML = '<div class="t-cap">Chưa có lần dừng máy nào</div>';
+    const codes = d.may_id ? cat.maLoi(d.may_id) : [];
+    d.dung_may.forEach((s, i) => st.append(stopCard(s, i, codes)));
+
+    // --- Ghi chú
+    $('[data-g3]', main).append(textField({ label: 'Ghi chú phiếu', value: d.ghi_chu, onInput: (v) => { d.ghi_chu = v; save(); } }));
+
+    // --- Sự kiện
+    $('[data-addkh]', main).onclick = () => { d.ke_hoach.push({ ly_do_id: cat.lyDo()[0]?.id || '', gio_bd: nowHM(), gio_kt: '' }); changed(); build(); };
+    $('[data-addstop]', main).onclick = () => {
+      if (!d.may_id) return toast('Chọn máy trước để hiện đúng bộ mã lỗi', 'warning');
+      d.dung_may.push({ id: uuid(), stt: d.dung_may.length + 1, ma_loi_id: '', gio_bd: nowHM(), gio_kt: '', van_de_cl: '', nguoi_xu_ly_id: '', tinh_trang: 'cho_xu_ly', ghi_chu: '' });
+      changed(); build();
+      $$('.stop', st).pop()?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    };
+    main.onclick = async (e) => {
+      const rk = e.target.closest('[data-rmkh]'); if (rk) { d.ke_hoach.splice(+rk.dataset.rmkh, 1); changed(); build(); return; }
+      const rs = e.target.closest('[data-rmstop]');
+      if (rs) {
+        if (!(await confirmBox('Xóa lần dừng máy này?', { ok: 'Xóa', danger: true }))) return;
+        d.dung_may.splice(+rs.dataset.rmstop, 1); d.dung_may.forEach((x, k) => { x.stt = k + 1; }); changed(); build(); return;
+      }
+      if (e.target.closest('[data-del]')) {
+        if (!(await confirmBox(d._edit ? 'Bỏ các thay đổi chưa gửi?' : 'Xóa phiếu nháp này?', { ok: d._edit ? 'Bỏ thay đổi' : 'Xóa nháp', danger: true }))) return;
+        drafts.del(d.id); queue.remove(d.id); deleteDraftServer(d.id); drawHeader();
+        return go(d._edit ? `#/phieu/${d.id}` : '#/ghi-phieu');
+      }
+      if (e.target.closest('[data-submit]')) submit();
+    };
+    preview();
+  }
+
+  function stopCard(s, i, codes) {
+    const m = minutesBetween(s.gio_bd, s.gio_kt);
+    const card = el(`<div class="stop"><div class="stop-head"><b>Lần dừng ${i + 1}</b>
+      <span class="chip" data-min>${s.gio_kt ? fmtMin(m) : 'Đang dừng'}</span>
+      <span class="chip" data-short ${s.gio_kt && m < ngan ? '' : 'hidden'}>Dừng ngắn</span>
+      <span style="flex:1"></span><button class="nn-btn nn-btn-ghost nn-btn-sm" data-rmstop="${i}" aria-label="Xóa lần dừng">${icon('trash', 16)}</button></div>
+      <div class="form-grid"></div></div>`);
+    const g = $('.form-grid', card);
+    const opts = codes.map((c) => ({ value: c.id, label: c.ten, sub: `${c.ma} · ${NHOM_TT[c.nhom_ton_that]}`, group: NHOM_TT[c.nhom_ton_that] }))
+      .sort((a, b) => a.group.localeCompare(b.group, 'vi') || 0);
+    const auto = el(`<div class="nn-field span-2"><span class="nn-label">Tự điền</span><div class="nn-row" style="padding:0;gap:8px" data-auto></div></div>`);
+    const paintAuto = () => {
+      const short = s.gio_kt && minutesBetween(s.gio_bd, s.gio_kt) < ngan;
+      $('[data-auto]', auto).innerHTML = s.ma_loi_id
+        ? `<span class="chip nn-mono">${esc(s.ma_loi)}</span><span class="chip dept">${esc(short ? NHOM_TT[3] + ' (dưới ' + ngan + ' phút)' : NHOM_TT[s.nhom_ton_that])}</span><span class="chip">${esc(s.loai_loi || '')}</span>`
+        : '<span class="t-cap">Chọn tên lỗi để tự điền mã lỗi, nhóm tổn thất, loại lỗi</span>';
+    };
+    const updTime = () => {
+      const mm = minutesBetween(s.gio_bd, s.gio_kt);
+      $('[data-min]', card).textContent = s.gio_kt ? fmtMin(mm) : 'Đang dừng';
+      $('[data-short]', card).hidden = !(s.gio_kt && mm < ngan);
+      paintAuto(); changed();
+    };
+    g.append(
+      comboField({ label: 'Tên lỗi', value: s.ma_loi_id, req: true, span: true, options: opts, onChange: (v) => {
+        const c = S.cat.byId.ma_loi[v];
+        Object.assign(s, c ? { ma_loi_id: c.id, ma_loi: c.ma, ten_loi: c.ten, nhom_ton_that: c.nhom_ton_that, loai_loi: c.loai_loi }
+          : { ma_loi_id: '', ma_loi: '', ten_loi: '', nhom_ton_that: null, loai_loi: '' });
+        paintAuto(); changed();
+      } }),
+      auto,
+      inputField({ label: 'Bắt đầu dừng', type: 'time', value: s.gio_bd, req: true, onInput: (v) => { s.gio_bd = v; updTime(); } }),
+      inputField({ label: 'Kết thúc dừng', type: 'time', value: s.gio_kt, req: true, onInput: (v) => { s.gio_kt = v; updTime(); } }),
+      comboField({ label: 'Người xử lý', value: s.nguoi_xu_ly_id, options: cat.nhanSu().map((n) => ({ value: n.id, label: n.ho_ten, sub: VAI_TRO[n.vai_tro] })), onChange: (v) => { s.nguoi_xu_ly_id = v; changed(); } }),
+      selectField({ label: 'Tình trạng lỗi', value: s.tinh_trang, placeholder: '— Chọn —', options: Object.entries(TINH_TRANG).map(([k, t]) => ({ value: k, label: t.label })), onChange: (v) => { s.tinh_trang = v || 'cho_xu_ly'; changed(); } }),
+      textField({ label: 'Vấn đề chất lượng', value: s.van_de_cl, onInput: (v) => { s.van_de_cl = v; save(); } }),
+      textField({ label: 'Ghi chú', value: s.ghi_chu, onInput: (v) => { s.ghi_chu = v; save(); } }),
+    );
+    paintAuto();
+    return card;
+  }
+
+  function preview() {
+    const box = $('[data-preview]', main); if (!box) return;
+    const c = calcPhieu(d, ngan);
+    const m = curMay();
+    box.innerHTML = [
+      kpiCard({ label: 'OEE', value: c.OEE == null ? '—' : fmtNum(c.OEE * 100, 1), unit: '%', status: c.OEE == null ? '' : oeeBadge(c.OEE, m?.nguong_xanh, m?.nguong_vang, true), foot: `<span>Mục tiêu: <b>${fmtNum(m?.oee_muc_tieu ?? 85)}%</b></span>`, small: true }),
+      kpiCard({ label: 'Availability', value: c.A == null ? '—' : fmtNum(c.A * 100, 1), unit: '%', foot: `<span>Chạy <b>${fmtMin(c.run)}</b> / ${fmtMin(c.ppt)}</span>`, small: true }),
+      kpiCard({ label: 'Performance', value: c.P == null ? '—' : fmtNum(c.P * 100, 1), unit: '%', foot: c.hasSpeed ? `<span>Lý tưởng <b>${fmtMin(c.ideal)}</b></span>` : '<span>Thiếu tốc độ định mức</span>', small: true }),
+      kpiCard({ label: 'Quality', value: c.Q == null ? '—' : fmtNum(c.Q * 100, 1), unit: '%', foot: `<span>Đạt <b>${fmtNum(c.good)}</b> sp</span>`, small: true }),
+    ].join('');
+    if (c.P != null && c.P > 1.05) box.insertAdjacentHTML('beforeend', `<div class="nn-alert nn-alert-warning" style="grid-column:1/-1"><span class="nn-alert-icon nn-tone-warning">${icon('warn', 20)}</span><div class="nn-alert-body"><div class="nn-alert-text">Performance trên 100% — kiểm tra lại tổng sản lượng, thời gian dừng hoặc tốc độ định mức</div></div></div>`);
+  }
+
+  function validate() {
+    const errs = [];
+    if (!d.may_id) errs.push('Chưa chọn máy');
+    if (!d.ngay) errs.push('Chưa chọn ngày');
+    if (!d.ca_id) errs.push('Chưa chọn ca');
+    if (!d.san_pham_id) errs.push('Chưa chọn sản phẩm');
+    if (!(d.toc_do_dm > 0)) errs.push('Chưa có tốc độ định mức');
+    if (!d.gio_bd || !d.gio_kt) errs.push('Thiếu giờ bắt đầu / kết thúc ca');
+    if (d.tong_sl == null) errs.push('Chưa nhập tổng sản lượng');
+    if ((d.sl_loi_kd || 0) + (d.sl_loi_qt || 0) > (d.tong_sl || 0)) errs.push('Sản lượng lỗi lớn hơn tổng sản lượng');
+    d.ke_hoach.forEach((k, i) => { if (!k.ly_do_id || !k.gio_bd || !k.gio_kt) errs.push(`Dừng kế hoạch ${i + 1}: thiếu lý do hoặc giờ`); });
+    d.dung_may.forEach((s, i) => {
+      if (!s.ma_loi_id) errs.push(`Lần dừng ${i + 1}: chưa chọn tên lỗi`);
+      if (!s.gio_bd || !s.gio_kt) errs.push(`Lần dừng ${i + 1}: thiếu giờ bắt đầu / kết thúc`);
+      else if (d.gio_bd && d.gio_kt && !timeInRange(s.gio_bd, d.gio_bd, d.gio_kt)) errs.push(`Lần dừng ${i + 1}: giờ bắt đầu ${s.gio_bd} nằm ngoài ca ${d.gio_bd}–${d.gio_kt}`);
+    });
+    const c = calcPhieu(d, ngan);
+    if (c.caPhut && c.stopLoss + c.keHoach + c.nghi > c.caPhut) errs.push(`Tổng thời gian dừng (${fmtMin(c.stopLoss + c.keHoach + c.nghi)}) vượt thời gian ca (${fmtMin(c.caPhut)})`);
+    return errs;
+  }
+
+  async function submit() {
+    const errs = validate();
+    if (errs.length) {
+      toast(errs.slice(0, 4).join(' · ') + (errs.length > 4 ? ` · và ${errs.length - 4} lỗi khác` : ''), 'danger', 'Chưa gửi được phiếu');
+      return;
+    }
+    const btn = $('[data-submit]', main);
+    btn.disabled = true;
+    const body = { ...d, trang_thai: $('[data-confirm]', main)?.checked ? 'da_xac_nhan' : undefined, nghi_phut: d.nghi_phut || 0 };
+    body.dung_may = d.dung_may.map((s, k) => ({ ...s, stt: k + 1, nguoi_xu_ly_id: s.nguoi_xu_ly_id || null, ma_loi_id: s.ma_loi_id || null }));
+    body.ke_hoach = d.ke_hoach.map((k) => ({ ...k, ly_do_id: k.ly_do_id || null }));
+    for (const k of ['san_pham_id', 'nguoi_van_hanh_id', 'to_truong_id', 'ky_thuat_id']) body[k] = body[k] || null;
+    try {
+      const r = await submitPhieu(body);
+      drawHeader();
+      if (r.queued) { toast('Đang mất mạng — phiếu đã lưu trên máy và sẽ tự gửi khi có mạng', 'warning', 'Chờ đồng bộ'); go('#/ghi-phieu'); }
+      else { toast(r.trang_thai === 'da_xac_nhan' ? 'Đã gửi và khóa phiếu' : 'Đã gửi phiếu — chờ tổ trưởng xác nhận', 'success'); go(`#/phieu/${d.id}`); }
+    } catch (e) {
+      btn.disabled = false;
+      toast(errText(e), 'danger', 'Máy chủ từ chối phiếu');
+    }
+  }
+
+  // Phiếu mới: chọn ca mặc định theo giờ hiện tại
+  if (!d.ca_id && !d._edit) pickDefaultCa();
+  drafts.put(d);
+  build();
+}
+
+// ================= CHI TIẾT PHIẾU =================
+async function detail(main, id) {
+  if (!S.online) {
+    const q = queue.all().find((x) => x.id === id);
+    if (q) return go(`#/ghi-phieu/nhap/${id}`);
+    main.innerHTML = '<div class="empty">Cần kết nối mạng để xem phiếu đã gửi</div>'; return;
+  }
+  const p = await getPhieu(id);
+  if (!p) { main.innerHTML = '<div class="empty">Không tìm thấy phiếu (có thể đã bị xóa)</div>'; return; }
+  const ngan = cat.caiDat().nguong_dung_ngan || 5;
+  const c = calcPhieu(p, ngan);
+  const m = S.cat.byId.may[p.may_id];
+  const locked = p.trang_thai === 'da_xac_nhan';
+  const me = S.profile;
+  const canEdit = can.suaKhoa() || (!locked && (p.nguoi_tao === me.id || can.xacNhan()) && can.ghiPhieu());
+  const canDelete = can.suaKhoa() || (!locked && p.nguoi_tao === me.id);
+  const stops = (p.dung_may || []).sort((a, b) => a.stt - b.stt);
+
+  main.innerHTML = `<div class="page-head"><div><div class="t-page">${esc(m?.ma || '')} · ${fmtDate(p.ngay)} · ${esc(cat.name('ca', p.ca_id))}</div>
+    <div class="muted">${esc(m?.ten || '')} · ${esc(cat.name('bo_phan', p.bo_phan_id))}</div></div>${phieuBadge(p.trang_thai)}</div>
+    <section class="card section no-print"><div class="nn-row" style="padding:0">
+      ${can.xacNhan() && !locked ? `<button class="nn-btn nn-btn-primary nn-btn-lg" data-act="confirm">${icon('lock', 18)}Xác nhận và khóa phiếu</button>` : ''}
+      ${canEdit ? `<a class="nn-btn nn-btn-secondary nn-btn-lg" href="#/phieu/${p.id}/sua">${icon('edit', 18)}Sửa phiếu</a>` : ''}
+      ${locked && can.suaKhoa() ? `<button class="nn-btn nn-btn-secondary nn-btn-lg" data-act="unlock">${icon('unlock', 18)}Mở khóa</button>` : ''}
+      <a class="nn-btn nn-btn-secondary nn-btn-lg" href="#/in/${p.id}">${icon('print', 18)}In / PDF</a>
+      ${canDelete ? `<button class="nn-btn nn-btn-danger nn-btn-lg" data-act="delete">${icon('trash', 18)}Xóa phiếu</button>` : ''}
+    </div></section>
+    <section class="grid-kpi section">
+      ${kpiCard({ label: 'OEE', value: c.OEE == null ? '—' : fmtNum(c.OEE * 100, 1), unit: '%', status: oeeBadge(c.OEE, m?.nguong_xanh, m?.nguong_vang, true), foot: `<span>Mục tiêu <b>${fmtNum(m?.oee_muc_tieu ?? 85)}%</b></span>` })}
+      ${kpiCard({ label: 'Availability', value: fmtNum((c.A ?? 0) * 100, 1), unit: '%', foot: `<span>Chạy <b>${fmtMin(c.run)}</b></span><span>PPT ${fmtMin(c.ppt)}</span>` })}
+      ${kpiCard({ label: 'Performance', value: c.P == null ? '—' : fmtNum(c.P * 100, 1), unit: '%', foot: `<span>Tốc độ <b>${fmtNum(p.toc_do_dm, 1)}</b> sp/phút</span>` })}
+      ${kpiCard({ label: 'Quality', value: c.Q == null ? '—' : fmtNum(c.Q * 100, 1), unit: '%', foot: `<span>Đạt <b>${fmtNum(c.good)}</b>/${fmtNum(c.tong)}</span>` })}
+    </section>
+    <section class="card section"><div class="card-head"><div class="t-h2">Thông tin phiếu</div></div>
+      <div class="nn-table-wrap"><table class="nn-table"><tbody>
+        <tr><th>Sản phẩm</th><td>${esc(cat.name('san_pham', p.san_pham_id) || '—')}</td><th>Giờ ca</th><td>${hm(p.gio_bd)}–${hm(p.gio_kt)} · nghỉ ${p.nghi_phut} phút</td></tr>
+        <tr><th>Vận hành</th><td>${esc(cat.person(p.nguoi_van_hanh_id) || '—')}</td><th>Tổng SL</th><td class="num">${fmtNum(p.tong_sl)}</td></tr>
+        <tr><th>Tổ trưởng</th><td>${esc(cat.person(p.to_truong_id) || '—')}</td><th>Lỗi khởi động</th><td class="num">${fmtNum(p.sl_loi_kd)}</td></tr>
+        <tr><th>Kỹ thuật</th><td>${esc(cat.person(p.ky_thuat_id) || '—')}</td><th>Lỗi quá trình</th><td class="num">${fmtNum(p.sl_loi_qt)}</td></tr>
+        <tr><th>Người tạo</th><td>${esc(cat.person(p.nguoi_tao))} · ${fmtDateTime(p.created_at)}</td><th>Xác nhận</th><td>${p.xac_nhan_boi ? `${esc(cat.person(p.xac_nhan_boi))} · ${fmtDateTime(p.xac_nhan_luc)}` : '—'}</td></tr>
+        ${p.ghi_chu ? `<tr><th>Ghi chú</th><td colspan="3" class="wrap">${esc(p.ghi_chu)}</td></tr>` : ''}
+      </tbody></table></div></section>
+    ${(p.dung_ke_hoach || []).length ? `<section class="card section"><div class="card-head"><div class="t-h2">Dừng có kế hoạch</div><span class="chip">${fmtMin(c.keHoach)}</span></div>
+      <div class="nn-table-wrap"><table class="nn-table"><thead><tr><th>Lý do</th><th>Từ</th><th>Đến</th><th class="num">Phút</th></tr></thead><tbody>
+      ${p.dung_ke_hoach.map((k) => `<tr><td>${esc(k.ly_do_ten || '')}</td><td>${hm(k.gio_bd)}</td><td>${hm(k.gio_kt)}</td><td class="num">${k.phut}</td></tr>`).join('')}</tbody></table></div></section>` : ''}
+    <section class="card section"><div class="card-head"><div class="t-h2">Các lần dừng máy (${stops.length})</div><span class="chip">${fmtMin(c.stopLoss)}</span></div>
+      ${stops.length ? `<div class="list-cards">${stops.map((s) => `<div class="lc" style="cursor:default">
+        <div class="lc-row"><b>${s.stt}. ${esc(s.ten_loi || '')}</b>${ttBadge(s.tinh_trang)}</div>
+        <div class="lc-row"><span><span class="chip nn-mono">${esc(s.ma_loi || '')}</span> <span class="chip dept">${esc(NHOM_TT[s.dung_ngan ? 3 : s.nhom_ton_that] || '')}</span> <span class="chip">${esc(s.loai_loi || '')}</span></span>
+          <span>${hm(s.gio_bd)}–${hm(s.gio_kt)} · <b>${s.phut} phút</b></span></div>
+        ${s.van_de_cl ? `<div class="t-cap">Chất lượng: ${esc(s.van_de_cl)}</div>` : ''}
+        ${s.ghi_chu ? `<div class="t-cap">Ghi chú: ${esc(s.ghi_chu)}</div>` : ''}
+        <div class="t-cap">Người xử lý: ${esc(cat.person(s.nguoi_xu_ly_id) || '—')}${s.ghi_chu_xu_ly ? ` · Xử lý: ${esc(s.ghi_chu_xu_ly)}` : ''}${s.cap_nhat_luc ? ` · Cập nhật ${fmtDateTime(s.cap_nhat_luc)}` : ''}</div>
+        <div class="nn-row no-print" style="padding:0">
+          ${can.xuLyLoi() ? `<button class="nn-btn nn-btn-secondary nn-btn-md" data-upd="${s.id}">${icon('edit', 16)}Cập nhật tình trạng</button>` : ''}
+          <button class="nn-btn nn-btn-ghost nn-btn-md" data-zalo="${s.id}">${icon('share', 16)}Gửi qua Zalo</button></div>
+      </div>`).join('')}</div>` : '<div class="empty">Không có lần dừng máy</div>'}</section>`;
+
+  main.onclick = async (e) => {
+    const a = e.target.closest('[data-act]');
+    try {
+      if (a?.dataset.act === 'confirm') {
+        if (!(await confirmBox('Sau khi khóa, chỉ quản lý hoặc admin được sửa phiếu.', { ok: 'Xác nhận và khóa' }))) return;
+        await rpc('xac_nhan_phieu', { p_id: p.id }); toast('Đã xác nhận và khóa phiếu'); detail(main, id);
+      } else if (a?.dataset.act === 'unlock') {
+        await rpc('mo_khoa_phieu', { p_id: p.id }); toast('Đã mở khóa phiếu', 'info'); detail(main, id);
+      } else if (a?.dataset.act === 'delete') {
+        if (!(await confirmBox('Xóa vĩnh viễn phiếu này cùng các lần dừng máy?', { ok: 'Xóa phiếu', danger: true }))) return;
+        await rpc('xoa_phieu', { p_id: p.id }); toast('Đã xóa phiếu', 'info'); go('#/hom-nay');
+      }
+    } catch (err) { toast(errText(err), 'danger'); }
+    const u = e.target.closest('[data-upd]');
+    if (u) openFaultUpdate(stops.find((s) => s.id === u.dataset.upd), p, () => detail(main, id));
+    const z = e.target.closest('[data-zalo]');
+    if (z) shareZalo(stops.find((s) => s.id === z.dataset.zalo), p);
+  };
+}
