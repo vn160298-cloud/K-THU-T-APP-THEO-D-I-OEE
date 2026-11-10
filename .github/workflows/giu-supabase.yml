@@ -1,5 +1,6 @@
 # Giữ project Supabase luôn hoạt động (gói miễn phí tự tạm dừng nếu 7 ngày không có ai dùng)
 # Cứ 3 ngày gọi hàm ping() một lần. Địa chỉ và anon key lấy từ js/config.js — không cần cấu hình thêm.
+# Bước cuối tự "gia hạn" lịch chạy để GitHub không tắt workflow khi repo 60 ngày không có thay đổi.
 name: Giữ Supabase hoạt động
 
 on:
@@ -7,11 +8,15 @@ on:
     - cron: '0 1 */3 * *'   # 01:00 UTC = 08:00 giờ Việt Nam, ngày 1, 4, 7, 10… mỗi tháng
   workflow_dispatch:         # cho phép bấm "Run workflow" để chạy thử ngay
 
+permissions:
+  contents: read
+  actions: write             # cần cho bước tự gia hạn lịch chạy
+
 jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Gọi ping() trên Supabase
         run: |
@@ -25,3 +30,11 @@ jobs:
             echo "::error::Gọi Supabase thất bại (HTTP $CODE). Nếu project đang tạm dừng, vào supabase.com bấm Restore; nếu báo không có hàm ping, chạy supabase/03_ping.sql."
             exit 1
           fi
+
+      - name: Gia hạn lịch chạy (chống GitHub tự tắt sau 60 ngày)
+        if: always()             # chạy cả khi bước ping lỗi, để lịch không bị tắt
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api -X PUT "repos/${{ github.repository }}/actions/workflows/giu-supabase.yml/enable"
+          echo "Đã gia hạn lịch chạy lúc $(date -u '+%Y-%m-%d %H:%M UTC')"
