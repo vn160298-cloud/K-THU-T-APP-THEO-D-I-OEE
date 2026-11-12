@@ -2,7 +2,7 @@
 import { S, cat, can, errText } from '../api.js';
 import { loadCalc, groupEntries } from '../data.js';
 import { aggregate, teep, pareto } from '../kpi.js';
-import { esc, icon, today, addDays, daysBetween, fmtDate, fmtNum, fmtPct, fmtMin, fmtDateTime, hm, NHOM_TT, TINH_TRANG, TRANG_THAI_PHIEU, oeeBadge } from '../lib.js';
+import { esc, icon, today, addDays, daysBetween, fmtDate, fmtNum, fmtPct, fmtMin, fmtDateTime, hm, NHOM_TT, TINH_TRANG, TRANG_THAI_PHIEU, oeeBadge, xlsxSheet } from '../lib.js';
 import { $, rangeField, selectField, comboField, kpiCard, cssVar, toast } from '../ui.js';
 import { offlineNote } from './today.js';
 
@@ -102,9 +102,17 @@ export async function render(main, { q }) {
       const mine = rows.filter((r) => r.p.day_chuyen_id === l.id && r.p.may_id === last);
       return { l, last, a: aggregate(mine.map((r) => r.c)), n: mine.length };
     }).filter((x) => x.n);
+    // Dây chuyền tổng (ghép công đoạn): OEE = OEE công đoạn cuối; hiện OEE từng công đoạn để thấy công đoạn nào kéo xuống
+    const tongRows = (S.cat.day_chuyen_tong || []).filter((t) => t.hoat_dong && inNm(t)).map((t) => {
+      const cds = S.cat.day_chuyen.filter((l) => l.tong_id === t.id && l.hoat_dong);
+      const fin = cds.find((l) => l.la_cd_cuoi) || cds[cds.length - 1];
+      const parts = cds.map((l) => ({ l, r: lineRows.find((x) => x.l.id === l.id) }));
+      const fr = lineRows.find((x) => x.l.id === fin?.id);
+      return { t, fin, parts, a: fr?.a || null, n: fr?.n || 0 };
+    }).filter((x) => x.parts.some((p) => p.r));
     const dates = []; for (let d = st.from; d <= st.to; d = addDays(d, 1)) dates.push(d);
     const perDay = dates.map((d) => aggregate(rows.filter((r) => r.p.ngay === d).map((r) => r.c)).OEE);
-    view = { rows, agg, T, plant, par, perMay, lineRows, dates, perDay, machines, days, withData, nEntries };
+    view = { rows, agg, T, plant, par, perMay, lineRows, tongRows, dates, perDay, machines, days, withData, nEntries };
 
     body.innerHTML = `
       ${agg.invalid ? `<div class="nn-alert nn-alert-warning section"><span class="nn-alert-icon nn-tone-warning">${icon('warn', 20)}</span><div class="nn-alert-body"><div class="nn-alert-text">${agg.invalid} phiếu có thời gian chạy kế hoạch bằng 0 (dừng kế hoạch nhập sai giờ) — không tính vào OEE. Mở phiếu để sửa.</div></div></div>` : ''}
@@ -128,6 +136,11 @@ export async function render(main, { q }) {
           <div class="nn-table-wrap" style="margin-top:12px"><table class="nn-table"><thead><tr><th>Lỗi</th><th class="num">Lần</th><th class="num">Phút</th><th class="num">Lũy kế</th></tr></thead><tbody>
           ${par.slice(0, 10).map((r) => `<tr><td class="wrap"><span class="nn-mono">${esc(r.ma || '')}</span> ${esc(r.ten)}</td><td class="num">${r.lan}</td><td class="num">${fmtNum(r.phut)}</td><td class="num">${fmtPct(r.luyKe, 0)}</td></tr>`).join('') || '<tr><td colspan="4" class="muted">Không có lần dừng</td></tr>'}</tbody></table></div></section>
       </div>
+      ${tongRows.length ? `<section class="card section"><div class="card-head"><div><div class="t-h2">OEE theo dây chuyền tổng</div><div class="t-cap">OEE dây chuyền tổng = OEE công đoạn cuối · bên cạnh là OEE từng công đoạn</div></div></div>
+        <div class="nn-table-wrap"><table class="nn-table"><thead><tr><th>Dây chuyền tổng</th><th>Các công đoạn</th><th class="num">OEE tổng</th><th>Đánh giá</th></tr></thead><tbody>
+        ${tongRows.map(({ t, fin, parts, a }) => `<tr><td class="wrap"><b>${esc(t.ten)}</b>${suffix(t)}</td>
+          <td class="wrap">${parts.map(({ l, r }) => `<span class="chip ${l.id === fin?.id ? 'dept' : ''}">${esc(l.ten)}: <b>${r ? fmtPct(r.a.OEE) : '—'}</b></span>`).join(' ')}</td>
+          <td class="num"><b>${a ? fmtPct(a.OEE) : '—'}</b></td><td>${a ? oeeBadge(a.OEE, 85, 60) : ''}</td></tr>`).join('')}</tbody></table></div></section>` : ''}
       <section class="card section"><div class="card-head"><div><div class="t-h2">OEE theo dây chuyền</div><div class="t-cap">OEE của máy cuối chuyền — dùng tốc độ định mức của dây chuyền</div></div></div>
         ${lineRows.length ? `<div class="nn-table-wrap"><table class="nn-table"><thead><tr><th>Dây chuyền</th><th>Máy cuối</th><th class="num">Số phiếu</th><th class="num">OEE</th><th class="num">A</th><th class="num">P</th><th class="num">Q</th><th>Đánh giá</th></tr></thead><tbody>
         ${lineRows.map(({ l, last, a, n }) => `<tr><td class="wrap">${esc(l.ten)}${suffix(l)}</td><td class="nn-mono">${esc(cat.name('may', last, 'ma'))}</td><td class="num">${n}</td><td class="num"><b>${fmtPct(a.OEE)}</b></td>
@@ -135,7 +148,7 @@ export async function render(main, { q }) {
       <section class="card section"><div class="card-head"><div class="t-h2">Xếp hạng máy</div></div><div class="nn-table-wrap"><table class="nn-table"><thead><tr>
         <th>Máy</th><th>Dây chuyền</th><th class="num">OEE</th><th class="num">A</th><th class="num">P</th><th class="num">Q</th><th class="num">MTBF (giờ)</th><th class="num">MTTR (phút)</th><th class="num">Dừng (phút)</th><th>Đánh giá</th></tr></thead><tbody>
         ${perMay.map(({ m, a }) => `<tr>
-          <td class="wrap"><span class="nn-mono">${esc(m.ma)}</span> <span class="t-cap">${esc(m.ten)}${esc(suffix(m))}</span></td><td class="wrap">${esc(cat.lineOfMay(m.id)?.ten || '—')}</td>
+          <td class="wrap"><span class="nn-mono">${esc(m.ma)}</span> <span class="t-cap">${esc(m.ten)}${esc(suffix(m))}</span></td><td class="wrap">${esc(cat.lineNames(m.id) || '—')}</td>
           <td class="num"><b>${fmtPct(a.OEE)}</b></td><td class="num">${fmtPct(a.A)}</td><td class="num">${fmtPct(a.P)}</td><td class="num">${fmtPct(a.Q)}</td>
           <td class="num">${a.MTBF == null ? '—' : fmtNum(a.MTBF / 60, 1)}</td><td class="num">${a.MTTR == null ? '—' : fmtNum(a.MTTR)}</td>
           <td class="num">${fmtNum(a.stopLoss)}</td><td>${oeeBadge(a.OEE, m.nguong_xanh, m.nguong_vang)}</td></tr>`).join('')}</tbody></table></div></section>`;
@@ -176,10 +189,10 @@ export async function render(main, { q }) {
   function exportXlsx() {
     if (!window.XLSX) return toast('Chưa tải được thư viện Excel — kiểm tra mạng', 'danger');
     if (!view) return toast('Không có dữ liệu để xuất', 'warning');
-    const { rows, agg, T, plant, par, perMay, lineRows, dates, perDay, withData, nEntries, days } = view;
+    const { rows, agg, T, plant, par, perMay, lineRows, tongRows, dates, perDay, withData, nEntries, days } = view;
     const nmName = (r) => S.cat.byId.nha_may[r.nha_may_id]?.ten || '';
     const wb = XLSX.utils.book_new();
-    const add = (name, arr) => XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(arr.length ? arr : [{ 'Ghi chú': 'Không có dữ liệu' }]), name);
+    const add = (name, arr) => XLSX.utils.book_append_sheet(wb, xlsxSheet(arr.length ? arr : [{ 'Ghi chú': 'Không có dữ liệu' }]), name);
     add('BoLoc', [...filterSummary().map(([k, v]) => ({ 'Mục': k, 'Giá trị': v })), { 'Mục': 'Lập lúc', 'Giá trị': fmtDateTime(new Date()) }, { 'Mục': 'Người lập', 'Giá trị': S.profile.ho_ten }]);
     add('ChiSo', [
       ['OEE (%)', r1(agg.OEE)], ['Availability (%)', r1(agg.A)], ['Performance (%)', r1(agg.P)], ['Quality (%)', r1(agg.Q)], ['TEEP (%)', r1(T)],
@@ -189,11 +202,14 @@ export async function render(main, { q }) {
     ].map(([k, v]) => ({ 'Chỉ số': k, 'Giá trị': v })));
     add('TheoNgay', dates.map((d, i) => ({ 'Ngày': fmtDate(d), 'OEE (%)': r1(perDay[i]), 'Số phiếu': rows.filter((r) => r.p.ngay === d).length })));
     add('TheoMay', perMay.map(({ m, a }) => ({
-      'Nhà máy': nmName(m), 'Mã máy': m.ma, 'Tên máy': m.ten, 'Khu vực': cat.name('khu_vuc', m.khu_vuc_id), 'Bộ phận': cat.name('bo_phan', m.bo_phan_id), 'Dây chuyền': cat.lineOfMay(m.id)?.ten || '',
+      'Nhà máy': nmName(m), 'Mã máy': m.ma, 'Tên máy': m.ten, 'Khu vực': cat.name('khu_vuc', m.khu_vuc_id), 'Bộ phận': cat.name('bo_phan', m.bo_phan_id), 'Dây chuyền': cat.lineNames(m.id),
       'Số phiếu': a.n, 'PPT (phút)': Math.round(a.ppt), 'Chạy (phút)': Math.round(a.run), 'Dừng (phút)': Math.round(a.stopLoss), 'A (%)': r1(a.A), 'P (%)': r1(a.P), 'Q (%)': r1(a.Q), 'OEE (%)': r1(a.OEE),
       'MTBF (giờ)': a.MTBF == null ? null : +(a.MTBF / 60).toFixed(2), 'MTTR (phút)': a.MTTR == null ? null : +a.MTTR.toFixed(1), 'Tổng SL': a.tong, 'SL đạt': a.good, 'Mục tiêu OEE (%)': m.oee_muc_tieu,
     })));
     add('DayChuyen', lineRows.map(({ l, last, a, n }) => ({ 'Nhà máy': nmName(l), 'Dây chuyền': l.ten, 'Máy cuối': cat.name('may', last, 'ma'), 'Số phiếu': n, 'OEE (%)': r1(a.OEE), 'A (%)': r1(a.A), 'P (%)': r1(a.P), 'Q (%)': r1(a.Q) })));
+    if (tongRows.length) add('DayChuyenTong', tongRows.flatMap(({ t, fin, parts, a }) => parts.map(({ l, r }) => ({
+      'Nhà máy': nmName(t), 'Dây chuyền tổng': t.ten, 'OEE tổng (%)': a ? r1(a.OEE) : null, 'Công đoạn': l.ten, 'Công đoạn cuối': l.id === fin?.id ? 'Có' : '',
+      'Số phiếu': r?.n || 0, 'OEE công đoạn (%)': r ? r1(r.a.OEE) : null, 'A (%)': r ? r1(r.a.A) : null, 'P (%)': r ? r1(r.a.P) : null, 'Q (%)': r ? r1(r.a.Q) : null }))));
     const lt = agg.L.slice(1).reduce((s, v) => s + v, 0);
     add('SixBigLosses', [1, 2, 3, 4, 5, 6].map((i) => ({ 'Nhóm': `${i}. ${NHOM_TT[i]}`, 'Phút': Math.round(agg.L[i]), 'Tỷ lệ (%)': lt ? r1(agg.L[i] / lt) : null })));
     add('Pareto', par.map((r) => ({ 'Mã lỗi': r.ma, 'Tên lỗi': r.ten, 'Số lần': r.lan, 'Phút': r.phut, 'Tỷ lệ (%)': r1(r.tyLe), 'Lũy kế (%)': r1(r.luyKe) })));

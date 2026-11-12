@@ -2,7 +2,7 @@
 import { S, cat, errText } from '../api.js';
 import { loadCalc } from '../data.js';
 import { aggregate, teep, pareto } from '../kpi.js';
-import { esc, icon, today, addDays, monthStart, daysBetween, fmtDate, fmtNum, fmtPct, fmtMin, hm, NHOM_TT, TINH_TRANG, TRANG_THAI_PHIEU, fmtDateTime, oeeBadge } from '../lib.js';
+import { esc, icon, today, addDays, monthStart, daysBetween, fmtDate, fmtNum, fmtPct, fmtMin, hm, NHOM_TT, TINH_TRANG, TRANG_THAI_PHIEU, fmtDateTime, oeeBadge, xlsxSheet } from '../lib.js';
 import { $, rangeField, selectField, segmented, toast } from '../ui.js';
 import { offlineNote } from './today.js';
 
@@ -79,7 +79,7 @@ export async function render(main) {
     if (!view?.rows.length) return toast('Không có dữ liệu để xuất', 'warning');
     const { rows, perMay, agg, par } = view;
     const wb = XLSX.utils.book_new();
-    const add = (name, arr) => XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(arr), name);
+    const add = (name, arr) => XLSX.utils.book_append_sheet(wb, xlsxSheet(arr), name);
     add('TongHop_May', perMay.map(({ m, a }) => ({
       'Mã máy': m.ma, 'Tên máy': m.ten, 'Bộ phận': cat.name('bo_phan', m.bo_phan_id), 'Số phiếu': a.n, 'PPT (phút)': Math.round(a.ppt), 'Chạy (phút)': Math.round(a.run),
       'Dừng tổn thất (phút)': Math.round(a.stopLoss), 'A (%)': r1(a.A), 'P (%)': r1(a.P), 'Q (%)': r1(a.Q), 'OEE (%)': r1(a.OEE),

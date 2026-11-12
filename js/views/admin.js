@@ -3,16 +3,17 @@
 import { S, sb, cat, can, loadCatalog, rpc, errText } from '../api.js';
 import { lsSet } from '../store.js';
 import { clearCalc } from '../data.js';
-import { esc, icon, hm, today, NHOM_TT, LOAI_LOI, VAI_TRO, toNum, sortCat, noAccent } from '../lib.js';
+import { esc, icon, hm, NHOM_TT, LOAI_LOI, VAI_TRO, toNum, sortCat, noAccent, numInput } from '../lib.js';
 import { el, $, $$, toast, openSheet, confirmBox, inputField, selectField, comboField, segmented } from '../ui.js';
 import { drawHeader } from '../app.js';
+import { exportCatalog, importCatalog, confirmPin } from './catalog_xlsx.js';
 
 const yes = (v) => (v ? `<span class="nn-status nn-tone-success">${icon('pass', 14)}Đang dùng</span>` : `<span class="nn-status nn-tone-info">${icon('info', 14)}Ngưng</span>`);
 
 const TABS = () => [
   { k: 'may', t: 'Máy' }, { k: 'ma_loi', t: 'Mã lỗi' }, { k: 'day_chuyen', t: 'Dây chuyền' }, { k: 'san_pham', t: 'Sản phẩm' },
   { k: 'toc_do', t: 'Tốc độ định mức' }, { k: 'ca', t: 'Ca làm việc' }, { k: 'ly_do_ke_hoach', t: 'Lý do dừng KH' },
-  { k: 'nhan_su', t: 'Nhân sự' }, { k: 'bo_phan', t: 'Bộ phận' }, { k: 'khu_vuc', t: 'Khu vực' },
+  { k: 'nhan_su', t: 'Nhân sự' }, { k: 'phan_cong', t: 'Phân công' }, { k: 'bo_phan', t: 'Bộ phận' }, { k: 'khu_vuc', t: 'Khu vực' },
   can.adminTong() && { k: 'nha_may', t: 'Nhà máy' }, { k: 'cai_dat', t: 'Cài đặt' },
 ].filter(Boolean);
 
@@ -24,7 +25,7 @@ const CFG = {
   may: () => ({
     title: 'Máy', rows: ofNm('may'),
     cols: [['ma', 'Mã', 'mono'], ['ten', 'Tên máy'], [(r) => cat.name('khu_vuc', r.khu_vuc_id), 'Khu vực'], [(r) => cat.name('bo_phan', r.bo_phan_id), 'Bộ phận'],
-      [(r) => cat.lineOfMay(r.id)?.ten || 'Máy đơn', 'Dây chuyền'], [(r) => `${r.oee_muc_tieu}% · ${r.nguong_vang}/${r.nguong_xanh}`, 'Mục tiêu · ngưỡng'], [(r) => yes(r.hoat_dong), 'Trạng thái', 'html']],
+      [(r) => cat.lineNames(r.id) || 'Máy đơn', 'Dây chuyền'], [(r) => `${r.oee_muc_tieu}% · ${r.nguong_vang}/${r.nguong_xanh}`, 'Mục tiêu · ngưỡng'], [(r) => yes(r.hoat_dong), 'Trạng thái', 'html']],
     fields: [['ma', 'Mã máy', 'text', true], ['ten', 'Tên máy', 'text', true], ['khu_vuc_id', 'Khu vực', 'select', false, () => opt(ofNm('khu_vuc'))],
       ['bo_phan_id', 'Bộ phận', 'select', true, () => opt(ofNm('bo_phan'))], ['oee_muc_tieu', 'OEE mục tiêu (%)', 'number'],
       ['nguong_xanh', 'Ngưỡng xanh từ (%)', 'number'], ['nguong_vang', 'Ngưỡng vàng từ (%)', 'number'], ['thu_tu', 'Thứ tự', 'number'], ['hoat_dong', 'Đang dùng', 'bool']],
@@ -82,6 +83,7 @@ export async function render(main, { q }) {
   let tab = q.tab || 'may';
   main.innerHTML = `<div class="page-head"><div><div class="t-page">Danh mục</div><div class="muted">Thêm, sửa các danh sách xổ xuống dùng trong app — quản lý riêng theo từng nhà máy</div></div>
     <div class="nn-row" style="padding:0"><button class="nn-btn nn-btn-secondary nn-btn-md" data-export>${icon('download', 18)}Xuất Excel toàn bộ danh mục</button>
+    <button class="nn-btn nn-btn-secondary nn-btn-md" data-import>${icon('upload', 18)}Nhập từ Excel</button>
     <button class="nn-btn nn-btn-secondary nn-btn-md" data-reload>${icon('sync', 18)}Tải lại</button></div></div>
     <div class="filters" data-nm></div>
     <div class="nn-row" style="padding:0 0 16px;gap:8px" data-tabs></div><div data-body></div>`;
@@ -105,10 +107,15 @@ export async function render(main, { q }) {
     else if (tab === 'toc_do') tocDo(body);
     else if (tab === 'day_chuyen') dayChuyen(body, show);
     else if (tab === 'cai_dat') caiDat(body);
+    else if (tab === 'phan_cong') phanCong(body);
   };
   $('[data-tabs]', main).onclick = (e) => { const b = e.target.closest('[data-tab]'); if (b) { tab = b.dataset.tab; show(); } };
-  $('[data-reload]', main).onclick = async () => { await loadCatalog(true); toast('Đã tải lại danh mục', 'info'); show(); };
+  $('[data-reload]', main).onclick = async () => {
+    if (!(await confirmPin('Tải lại toàn bộ danh mục mới nhất từ máy chủ?', { ok: 'Tải lại' }))) return;
+    try { await reload(); toast('Đã tải lại danh mục', 'info'); show(); } catch (e) { toast(errText(e), 'danger'); }
+  };
   $('[data-export]', main).onclick = exportCatalog;
+  $('[data-import]', main).onclick = () => importCatalog(async () => { clearCalc(); drawHeader(); show(); });
   show();
 }
 
@@ -297,7 +304,7 @@ function tocDo(box) {
     const t = T();
     sel = new Set(S.cat[t.assign].filter((x) => x[t.col] === id).map((x) => x.san_pham_id));
     spd = {};
-    for (const x of S.cat[t.speed].filter((y) => y[t.col] === id)) { spd[x.san_pham_id] = String(x.sp_phut); sel.add(x.san_pham_id); }
+    for (const x of S.cat[t.speed].filter((y) => y[t.col] === id)) { spd[x.san_pham_id] = numInput(x.sp_phut); sel.add(x.san_pham_id); }
   };
   if (!targets().some((t) => t.value === st.id)) st.id = targets()[0]?.value || '';
   loadState(st.id);
@@ -328,6 +335,7 @@ function tocDo(box) {
   };
   const updCount = () => { const c = $('[data-count]', box); if (c) c.textContent = `${sel.size} sản phẩm đã chọn`; };
   draw();
+  box.addEventListener('focusout', (e) => { const i = e.target.closest?.('[data-spd]'); if (i) { const n = toNum(i.value); if (n != null) { i.value = numInput(n); spd[i.dataset.spd] = i.value; } } });
   box.oninput = (e) => {
     const k = e.target.closest('[data-kw]');
     if (k) { kw = noAccent(k.value); const pos = k.selectionStart; draw(); const n = $('[data-kw]', box); n.focus(); n.setSelectionRange(pos, pos); return; }
@@ -373,17 +381,29 @@ function tocDo(box) {
 // ---------- Dây chuyền ----------
 function dayChuyen(box, refresh) {
   const lines = ofNm('day_chuyen');
-  box.innerHTML = `<section class="card"><div class="card-head"><div><div class="t-h2">Dây chuyền (${lines.length})</div>
-    <div class="t-cap">Một phiếu cho cả dây chuyền; mã lỗi theo từng máy. Mỗi máy chỉ thuộc một dây chuyền; máy không thuộc dây chuyền nào là máy đơn.</div></div>
+  const tongs = ofNm('day_chuyen_tong');
+  const tongName = (id) => tongs.find((t) => t.id === id)?.ten || '';
+  box.innerHTML = `<section class="card section"><div class="card-head"><div><div class="t-h2">Dây chuyền tổng (${tongs.length})</div>
+    <div class="t-cap">Ghép nhiều công đoạn thành 1 dây chuyền để xem báo cáo chung, ví dụ: nấu dung dịch + sơ chế sợi → bồn mix, chiết rót. Mỗi công đoạn là 1 dây chuyền bên dưới, có phiếu và sản lượng riêng. OEE dây chuyền tổng = OEE công đoạn cuối.</div></div>
+    <button class="nn-btn nn-btn-secondary nn-btn-md" data-addtong>${icon('plus', 18)}Thêm dây chuyền tổng</button></div>
+    ${tongs.length ? `<div class="list-cards">${tongs.map((t) => { const cd = S.cat.day_chuyen.filter((l) => l.tong_id === t.id); const fin = cat.cdCuoi(t.id);
+      return `<div class="lc" data-edittong="${t.id}"><div class="lc-row"><b>${esc(t.ten)}</b>${yes(t.hoat_dong)}</div>
+        <div class="nn-row" style="padding:0;gap:6px">${cd.map((l) => `<span class="chip ${l.id === fin?.id ? 'dept' : ''}">${esc(l.ten)}${l.id === fin?.id ? ' · công đoạn cuối' : ''}</span>`).join('') || '<span class="t-cap">Chưa có công đoạn — mở từng dây chuyền bên dưới, chọn "Thuộc dây chuyền tổng"</span>'}</div></div>`; }).join('')}</div>`
+      : '<div class="t-cap">Chưa có. Chỉ cần khi một sản phẩm đi qua nhiều nhánh / công đoạn có sản lượng khác đơn vị.</div>'}</section>
+    <section class="card"><div class="card-head"><div><div class="t-h2">Dây chuyền / công đoạn (${lines.length})</div>
+    <div class="t-cap">Một phiếu cho cả dây chuyền; mã lỗi theo từng máy. Một máy có thể thuộc nhiều dây chuyền (máy dùng chung): mỗi ca máy đó chỉ tính cho dây chuyền ghi phiếu trước. Máy không thuộc dây chuyền nào là máy đơn.</div></div>
     <button class="nn-btn nn-btn-primary nn-btn-md" data-add>${icon('plus', 18)}Thêm dây chuyền</button></div>
     <div class="list-cards">${lines.map((l) => {
       const mem = cat.members(l.id);
       const last = cat.lastMay(l.id);
       return `<div class="lc" data-edit="${l.id}"><div class="lc-row"><b>${esc(l.ten)}</b>${yes(l.hoat_dong)}</div>
         <div class="nn-row" style="padding:0;gap:6px">${mem.map((m) => `<span class="chip ${m.may_id === last ? 'dept' : ''}">${esc(cat.name('may', m.may_id, 'ma'))}${m.may_id === last ? ' · cuối' : ''}</span>`).join(icon('chevR', 14)) || '<span class="t-cap">Chưa gán máy</span>'}</div>
-        <div class="t-cap">${S.cat.day_chuyen_san_pham.filter((x) => x.day_chuyen_id === l.id).length} sản phẩm · ${S.cat.toc_do_day_chuyen.filter((x) => x.day_chuyen_id === l.id).length} tốc độ đã khai báo</div></div>`;
+        <div class="t-cap">${S.cat.day_chuyen_san_pham.filter((x) => x.day_chuyen_id === l.id).length} sản phẩm · ${S.cat.toc_do_day_chuyen.filter((x) => x.day_chuyen_id === l.id).length} tốc độ đã khai báo${l.tong_id ? ` · thuộc <b>${esc(tongName(l.tong_id))}</b>${l.la_cd_cuoi ? ' (công đoạn cuối)' : ''}` : ''}</div></div>`;
     }).join('') || '<div class="empty">Chưa có dây chuyền</div>'}</div></section>`;
+  const tongCfg = { title: 'Dây chuyền tổng', table: 'day_chuyen_tong', fields: [['ten', 'Tên dây chuyền tổng', 'text', true], ['thu_tu', 'Thứ tự', 'number'], ['hoat_dong', 'Đang dùng', 'bool']] };
   box.onclick = (e) => {
+    if (e.target.closest('[data-addtong]')) return editRow(tongCfg, { nha_may_id: S.nm, hoat_dong: true, thu_tu: tongs.length + 1 }, refresh);
+    const et = e.target.closest('[data-edittong]'); if (et) return editRow(tongCfg, tongs.find((t) => t.id === et.dataset.edittong), refresh);
     if (e.target.closest('[data-add]')) return editLine({ nha_may_id: S.nm, ten: '', hoat_dong: true, thu_tu: lines.length + 1 }, []);
     const ed = e.target.closest('[data-edit]');
     if (ed) { const l = S.cat.byId.day_chuyen[ed.dataset.edit]; editLine(l, cat.members(l.id)); }
@@ -395,19 +415,28 @@ function dayChuyen(box, refresh) {
     const act = el(`<label class="nn-row" style="padding:0;gap:8px"><input type="checkbox" ${v.hoat_dong ? 'checked' : ''} style="width:22px;height:22px"> Đang dùng</label>`);
     $('input', act).onchange = (e) => { v.hoat_dong = e.target.checked; };
     $('[data-g]', body).append(act);
+    if (tongs.length || v.tong_id) {
+      const fin = el(`<label class="nn-row" style="padding:0;gap:8px"><input type="checkbox" ${v.la_cd_cuoi ? 'checked' : ''} style="width:22px;height:22px"> Công đoạn cuối (OEE dây chuyền tổng lấy theo công đoạn này)</label>`);
+      $('input', fin).onchange = (e) => { v.la_cd_cuoi = e.target.checked; };
+      $('[data-g]', body).append(selectField({ label: 'Thuộc dây chuyền tổng (nếu là 1 công đoạn)', size: 'md', placeholder: '— Không —', value: v.tong_id || '', options: opt(tongs),
+        onChange: (x) => { v.tong_id = x || null; if (!x) { v.la_cd_cuoi = false; $('input', fin).checked = false; } } }), fin);
+    }
     const drawM = () => {
       $('[data-m]', body).innerHTML = mem.map((m, i) => `<div class="stop"><div class="lc-row"><b>${i + 1}. ${esc(cat.mayLabel(m.may_id))}</b>
         <span><button class="nn-btn nn-btn-ghost nn-btn-sm" data-up="${i}" aria-label="Lên">▲</button><button class="nn-btn nn-btn-ghost nn-btn-sm" data-rm="${i}">${icon('trash', 14)}</button></span></div>
         <div class="nn-row" style="padding:4px 0 0"><label><input type="radio" name="last" data-last="${i}" ${m.la_may_cuoi ? 'checked' : ''}> Máy cuối chuyền (đếm sản lượng đạt)</label></div></div>`).join('') || '<div class="t-cap">Chưa có máy</div>';
     };
     drawM();
-    const free = () => cat.may(true).filter((m) => { const l = cat.lineOfMay(m.id); return (!l || l.id === v.id) && !mem.some((x) => x.may_id === m.id); });
-    const add = comboField({ label: 'Thêm máy vào dây chuyền (chỉ hiện máy chưa thuộc dây chuyền khác)', size: 'md', options: free().map((m) => ({ value: m.id, label: `${m.ma} · ${m.ten}` })),
-      onChange: (x, fld) => { if (x) { mem.push({ may_id: x, la_may_cuoi: false }); drawM(); fld.setOptions(free().map((m) => ({ value: m.id, label: `${m.ma} · ${m.ten}` })), ''); } } });
+    const free = () => cat.may(true).filter((m) => !mem.some((x) => x.may_id === m.id));
+    const freeOpts = () => free().map((m) => { const other = cat.linesOfMay(m.id).filter((l) => l.id !== v.id);
+      return { value: m.id, label: `${m.ma} · ${m.ten}`, sub: other.length ? `Dùng chung — đang thuộc ${other.map((l) => l.ten).join(', ')}` : 'Máy đơn', group: other.length ? 'Máy đã thuộc dây chuyền khác (dùng chung)' : 'Máy đơn' }; })
+      .sort((a, b) => a.group.localeCompare(b.group, 'vi'));
+    const add = comboField({ label: 'Thêm máy vào dây chuyền (máy đã thuộc dây chuyền khác sẽ thành máy dùng chung)', size: 'md', options: freeOpts(),
+      onChange: (x, fld) => { if (x) { mem.push({ may_id: x, la_may_cuoi: false }); drawM(); fld.setOptions(freeOpts(), ''); } } });
     $('[data-addm]', body).append(add);
     body.addEventListener('click', (e) => {
       const up = e.target.closest('[data-up]'); if (up) { const i = +up.dataset.up; if (i > 0) { [mem[i - 1], mem[i]] = [mem[i], mem[i - 1]]; drawM(); } }
-      const rm = e.target.closest('[data-rm]'); if (rm) { mem.splice(+rm.dataset.rm, 1); drawM(); add.setOptions(free().map((m) => ({ value: m.id, label: `${m.ma} · ${m.ten}` })), ''); }
+      const rm = e.target.closest('[data-rm]'); if (rm) { mem.splice(+rm.dataset.rm, 1); drawM(); add.setOptions(freeOpts(), ''); }
     });
     body.addEventListener('change', (e) => { if (e.target.dataset.last != null) mem.forEach((m, i) => { m.la_may_cuoi = i === +e.target.dataset.last; }); });
     const ok = el(`<button class="nn-btn nn-btn-primary nn-btn-lg">${icon('pass', 18)}Lưu</button>`);
@@ -416,8 +445,13 @@ function dayChuyen(box, refresh) {
     ok.onclick = async () => {
       if (!v.ten) return toast('Nhập tên dây chuyền', 'warning');
       if (mem.length && !mem.some((m) => m.la_may_cuoi)) mem[mem.length - 1].la_may_cuoi = true;
+      // Chưa chạy SQL v1.2 thì bản ghi không có cột tong_id: không gửi cột này để khỏi lỗi
+      if (!v.tong_id) { if ('tong_id' in line) { v.tong_id = null; v.la_cd_cuoi = false; } else { delete v.tong_id; delete v.la_cd_cuoi; } }
       try {
         const { data, error } = await sb.from('day_chuyen').upsert(v).select().single(); if (error) throw error;
+        if (data.tong_id && data.la_cd_cuoi) {  // mỗi dây chuyền tổng chỉ 1 công đoạn cuối
+          const { error: e1 } = await sb.from('day_chuyen').update({ la_cd_cuoi: false }).eq('tong_id', data.tong_id).neq('id', data.id); if (e1) throw e1;
+        }
         const { error: e0 } = await sb.from('day_chuyen_may').delete().eq('day_chuyen_id', data.id); if (e0) throw e0;
         if (mem.length) {
           const { error: e2 } = await sb.from('day_chuyen_may').insert(mem.map((m, i) => ({ day_chuyen_id: data.id, may_id: m.may_id, thu_tu: i + 1, la_may_cuoi: !!m.la_may_cuoi })));
@@ -432,6 +466,90 @@ function dayChuyen(box, refresh) {
       await reload(); s.close(); refresh();
     };
   }
+}
+
+// ---------- Phân công: Ca × (Dây chuyền | Máy đơn) -> tổ trưởng, người vận hành ----------
+// Phiếu dùng bảng này để tự điền tổ trưởng và lọc danh sách người vận hành theo ca + máy.
+function phanCong(box) {
+  const st = (phanCong.st = phanCong.st && phanCong.st.nm === S.nm ? phanCong.st : { nm: S.nm, ca: '', t: '' });
+  const cas = ofNm('ca').filter((c) => c.hoat_dong);
+  const targets = () => [
+    ...cat.dayChuyen().map((l) => ({ value: `dc:${l.id}`, label: l.ten, sub: cat.members(l.id).map((x) => cat.name('may', x.may_id, 'ma')).join(' → '), group: 'Dây chuyền' })),
+    ...cat.mayDon().map((m) => ({ value: `m:${m.id}`, label: `${m.ma} · ${m.ten}`, group: 'Máy đơn' })),
+  ];
+  const tOf = (v) => (v.startsWith('dc:') ? { day_chuyen_id: v.slice(3), may_id: null } : { may_id: v.slice(2), day_chuyen_id: null });
+  const tLabel = (x) => (x.day_chuyen_id ? cat.name('day_chuyen', x.day_chuyen_id) : cat.mayLabel(x.may_id));
+  const rowsOf = () => (S.cat.phan_cong || []).filter((x) => x.nha_may_id === S.nm);
+  if (!cas.some((c) => c.id === st.ca)) st.ca = cas[0]?.id || '';
+  if (!targets().some((t) => t.value === st.t)) st.t = targets()[0]?.value || '';
+
+  box.innerHTML = `<section class="card section"><div class="card-head"><div><div class="t-h2">Phân công theo ca</div>
+    <div class="t-cap">Chọn ca và dây chuyền / máy đơn, rồi thêm tổ trưởng và người vận hành. Khi ghi phiếu, app tự điền tổ trưởng và chỉ gợi ý người vận hành được phân công (vẫn có nút "Xem tất cả" khi có người làm thay).</div></div></div>
+    <div class="filters" data-f></div><div data-cur></div></section>
+    <section class="card"><div class="card-head"><div class="t-h2" data-sumt></div></div><div data-sum></div></section>`;
+  if (!S.cat.phan_cong) { $('[data-cur]', box).innerHTML = '<div class="empty">Chưa cập nhật database — chạy lại file supabase/01_schema.sql bản mới</div>'; return; }
+  const fCa = selectField({ label: 'Ca', size: 'md', value: st.ca, options: cas.map((c) => ({ value: c.id, label: `${c.ten} (${hm(c.gio_bd)}–${hm(c.gio_kt)})${c.bo_phan_id ? ` · ${cat.name('bo_phan', c.bo_phan_id)}` : ''}` })),
+    onChange: (v) => { st.ca = v; drawCur(); } });
+  const fT = comboField({ label: 'Dây chuyền / Máy đơn', size: 'md', value: st.t, allowClear: false, options: targets(), onChange: (v) => { st.t = v; drawCur(); } });
+  $('[data-f]', box).append(fCa, fT);
+
+  const list = (vt) => (st.ca && st.t ? rowsOf().filter((x) => x.ca_id === st.ca && x.vai_tro === vt && (x.day_chuyen_id || x.may_id) === tOf(st.t)[st.t.startsWith('dc:') ? 'day_chuyen_id' : 'may_id']) : []);
+  const person = (n) => n ? `${esc(n.ho_ten)} <span class="t-cap">${esc(n.ma_nv)}</span>` : '<span class="t-cap">(đã xóa)</span>';
+
+  function block(vt, title, roles) {
+    const cur = list(vt);
+    const wrap = el(`<div class="nn-field"><span class="nn-label">${esc(title)} (${cur.length})</span><div class="nn-stack" style="padding:0;gap:6px">
+      ${cur.map((x) => `<div class="lc-row" style="padding:6px 10px;border:1px solid var(--line);border-radius:8px"><span>${person(S.cat.byId.nhan_su[x.nhan_su_id])}</span>
+        <button class="nn-btn nn-btn-ghost nn-btn-sm" data-rmpc="${x.id}" aria-label="Bỏ phân công">${icon('trash', 14)}</button></div>`).join('') || '<span class="t-cap">Chưa phân công</span>'}</div></div>`);
+    const have = new Set(cur.map((x) => x.nhan_su_id));
+    wrap.append(comboField({ label: `Thêm ${title.toLowerCase()}`, size: 'md', placeholder: '— Chọn người —',
+      options: cat.nhanSu(roles).filter((n) => !have.has(n.id)).map((n) => ({ value: n.id, label: n.ho_ten, sub: `${n.ma_nv} · ${VAI_TRO[n.vai_tro]}${n.bo_phan_id ? ` · ${cat.name('bo_phan', n.bo_phan_id)}` : ''}` })),
+      onChange: async (v) => {
+        if (!v) return;
+        const { error } = await sb.from('phan_cong').insert({ nha_may_id: S.nm, ca_id: st.ca, ...tOf(st.t), nhan_su_id: v, vai_tro: vt, thu_tu: cur.length + 1 });
+        if (error) return toast(errText(error), 'danger');
+        await reload(); drawCur(); drawSum();
+      } }));
+    return wrap;
+  }
+
+  function drawCur() {
+    const c = $('[data-cur]', box);
+    if (!st.ca || !st.t) { c.innerHTML = '<div class="empty">Chưa có ca hoặc dây chuyền / máy — khai báo ở các tab trước</div>'; return; }
+    c.innerHTML = '<div class="form-grid" style="margin-top:12px"></div>';
+    $('.form-grid', c).append(block('to_truong', 'Tổ trưởng', ['to_truong', 'quan_ly']), block('van_hanh', 'Người vận hành', ['van_hanh', 'to_truong']));
+  }
+
+  function drawSum() {
+    const groups = new Map();
+    for (const x of rowsOf()) {
+      const key = `${x.ca_id}|${x.day_chuyen_id ? `dc:${x.day_chuyen_id}` : `m:${x.may_id}`}`;
+      const g = groups.get(key) || { ca: x.ca_id, t: key.split('|')[1], x, tt: [], vh: [] };
+      (x.vai_tro === 'to_truong' ? g.tt : g.vh).push(S.cat.byId.nhan_su[x.nhan_su_id]?.ho_ten || '?');
+      groups.set(key, g);
+    }
+    const arr = [...groups.values()].sort((a, b) => cat.name('ca', a.ca).localeCompare(cat.name('ca', b.ca), 'vi') || tLabel(a.x).localeCompare(tLabel(b.x), 'vi', { numeric: true }));
+    $('[data-sumt]', box).textContent = `Bảng phân công ${nmName(S.nm)} (${arr.length})`;
+    $('[data-sum]', box).innerHTML = `<div class="nn-table-wrap"><table class="nn-table"><thead><tr><th>Ca</th><th>Dây chuyền / Máy</th><th>Tổ trưởng</th><th>Người vận hành</th><th></th></tr></thead><tbody>
+      ${arr.map((g) => `<tr><td>${esc(cat.name('ca', g.ca))}</td><td class="wrap">${esc(tLabel(g.x))}</td><td class="wrap">${esc(g.tt.join(', ') || '—')}</td><td class="wrap">${esc(g.vh.join(', ') || '—')}</td>
+        <td><button class="nn-btn nn-btn-ghost nn-btn-sm" data-pick="${g.ca}|${g.t}">${icon('edit', 14)}Sửa</button></td></tr>`).join('') || '<tr><td colspan="5" class="muted">Chưa có phân công nào</td></tr>'}</tbody></table></div>`;
+  }
+
+  box.onclick = async (e) => {
+    const rm = e.target.closest('[data-rmpc]');
+    if (rm) {
+      const { error } = await sb.from('phan_cong').delete().eq('id', rm.dataset.rmpc);
+      if (error) return toast(errText(error), 'danger');
+      await reload(); drawCur(); drawSum(); return;
+    }
+    const pk = e.target.closest('[data-pick]');
+    if (pk) {
+      const [ca, t] = pk.dataset.pick.split('|');
+      st.ca = ca; st.t = t; fCa.input.value = ca; fT.setValue(t); drawCur();
+      box.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
+  drawCur(); drawSum();
 }
 
 // ---------- Cài đặt ----------
@@ -451,46 +569,3 @@ function caiDat(box) {
   };
 }
 
-// ---------- Xuất Excel toàn bộ danh mục (mỗi mục 1 sheet) để sao lưu ----------
-function exportCatalog() {
-  if (!window.XLSX) return toast('Chưa tải được thư viện Excel — kiểm tra mạng', 'danger');
-  const scope = can.adminTong() ? S.cat.nha_may.map((n) => n.id) : [S.nm];
-  const inScope = (r) => scope.includes(r.nha_may_id);
-  const mayOf = (id) => S.cat.byId.may[id];
-  const mayIn = (r) => scope.includes(mayOf(r.may_id)?.nha_may_id);
-  const lineIn = (r) => scope.includes(S.cat.byId.day_chuyen[r.day_chuyen_id]?.nha_may_id);
-  const yn = (b) => (b ? 'Có' : 'Không');
-  const sp = (id) => S.cat.byId.san_pham[id];
-  const wb = XLSX.utils.book_new();
-  const add = (name, arr) => XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(arr.length ? arr : [{ 'Ghi chú': 'Chưa có dữ liệu' }]), name);
-
-  add('Nhà máy', S.cat.nha_may.filter((n) => scope.includes(n.id)).map((n) => ({ 'Mã': n.ma, 'Tên nhà máy': n.ten, 'Đang dùng': yn(n.hoat_dong), 'Thứ tự': n.thu_tu })));
-  add('Bộ phận', S.cat.bo_phan.filter(inScope).map((b) => ({ 'Nhà máy': nmName(b.nha_may_id), 'Bộ phận': b.ten, 'Đang dùng': yn(b.hoat_dong), 'Thứ tự': b.thu_tu })));
-  add('Khu vực', S.cat.khu_vuc.filter(inScope).map((k) => ({ 'Nhà máy': nmName(k.nha_may_id), 'Khu vực': k.ten, 'Đang dùng': yn(k.hoat_dong), 'Thứ tự': k.thu_tu })));
-  add('Máy', S.cat.may.filter(inScope).map((m) => ({ 'Nhà máy': nmName(m.nha_may_id), 'Mã máy': m.ma, 'Tên máy': m.ten, 'Khu vực': cat.name('khu_vuc', m.khu_vuc_id), 'Bộ phận': cat.name('bo_phan', m.bo_phan_id),
-    'Dây chuyền': cat.lineOfMay(m.id)?.ten || '(máy đơn)', 'OEE mục tiêu (%)': m.oee_muc_tieu, 'Ngưỡng xanh (%)': m.nguong_xanh, 'Ngưỡng vàng (%)': m.nguong_vang, 'Đang dùng': yn(m.hoat_dong), 'Thứ tự': m.thu_tu })));
-  add('Mã lỗi', S.cat.ma_loi.filter(mayIn).map((l) => ({ 'Nhà máy': nmName(mayOf(l.may_id)?.nha_may_id), 'Mã máy': mayOf(l.may_id)?.ma, 'Tên máy': mayOf(l.may_id)?.ten, 'Mã lỗi': l.ma, 'Tên lỗi': l.ten,
-    'Nhóm 6 tổn thất': `${l.nhom_ton_that}. ${NHOM_TT[l.nhom_ton_that]}`, 'Loại lỗi': l.loai_loi, 'Đang dùng': yn(l.hoat_dong), 'Thứ tự': l.thu_tu })));
-  add('Dây chuyền', S.cat.day_chuyen.filter(inScope).map((l) => ({ 'Nhà máy': nmName(l.nha_may_id), 'Dây chuyền': l.ten, 'Số máy': cat.members(l.id).length, 'Đang dùng': yn(l.hoat_dong), 'Thứ tự': l.thu_tu })));
-  add('Dây chuyền - Máy', S.cat.day_chuyen_may.filter(lineIn).sort((a, b) => a.thu_tu - b.thu_tu).map((x) => { const l = S.cat.byId.day_chuyen[x.day_chuyen_id]; return {
-    'Nhà máy': nmName(l.nha_may_id), 'Dây chuyền': l.ten, 'Thứ tự': x.thu_tu, 'Mã máy': mayOf(x.may_id)?.ma, 'Tên máy': mayOf(x.may_id)?.ten, 'Máy cuối chuyền': yn(x.la_may_cuoi) }; }));
-  add('Sản phẩm', S.cat.san_pham.filter(inScope).map((p) => ({ 'Nhà máy': nmName(p.nha_may_id), 'Mã': p.ma, 'Sản phẩm': p.ten, 'ĐVT': p.dvt, 'Đang dùng': yn(p.hoat_dong), 'Thứ tự': p.thu_tu })));
-  // Sản phẩm + tốc độ theo máy đơn / dây chuyền (gồm cả sản phẩm đã gán chưa có tốc độ)
-  const speedRows = (assign, speed, col, label) => {
-    const m = new Map();
-    for (const x of assign) m.set(`${x[col]}|${x.san_pham_id}`, { [col]: x[col], san_pham_id: x.san_pham_id, sp_phut: '' });
-    for (const x of speed) m.set(`${x[col]}|${x.san_pham_id}`, { [col]: x[col], san_pham_id: x.san_pham_id, sp_phut: x.sp_phut });
-    return [...m.values()].map((r) => ({ ...r, label }));
-  };
-  add('SP & tốc độ theo máy', speedRows(S.cat.may_san_pham, S.cat.toc_do, 'may_id').filter(mayIn).map((r) => ({
-    'Nhà máy': nmName(mayOf(r.may_id)?.nha_may_id), 'Mã máy': mayOf(r.may_id)?.ma, 'Tên máy': mayOf(r.may_id)?.ten, 'Mã sản phẩm': sp(r.san_pham_id)?.ma, 'Sản phẩm': sp(r.san_pham_id)?.ten, 'Tốc độ (sp/phút)': r.sp_phut })));
-  add('SP & tốc độ theo chuyền', speedRows(S.cat.day_chuyen_san_pham, S.cat.toc_do_day_chuyen, 'day_chuyen_id').filter(lineIn).map((r) => { const l = S.cat.byId.day_chuyen[r.day_chuyen_id]; return {
-    'Nhà máy': nmName(l.nha_may_id), 'Dây chuyền': l.ten, 'Mã sản phẩm': sp(r.san_pham_id)?.ma, 'Sản phẩm': sp(r.san_pham_id)?.ten, 'Tốc độ (sp/phút)': r.sp_phut }; }));
-  add('Ca làm việc', S.cat.ca.filter(inScope).map((c) => ({ 'Nhà máy': nmName(c.nha_may_id), 'Bộ phận': cat.name('bo_phan', c.bo_phan_id) || '(tất cả)', 'Ca': c.ten, 'Giờ bắt đầu': hm(c.gio_bd), 'Giờ kết thúc': hm(c.gio_kt), 'Nghỉ (phút)': c.nghi_phut, 'Đang dùng': yn(c.hoat_dong) })));
-  add('Lý do dừng KH', S.cat.ly_do_ke_hoach.filter(inScope).map((l) => ({ 'Nhà máy': nmName(l.nha_may_id), 'Lý do': l.ten, 'Đang dùng': yn(l.hoat_dong), 'Thứ tự': l.thu_tu })));
-  add('Nhân sự', S.cat.nhan_su.filter((n) => !n.nha_may_id || scope.includes(n.nha_may_id)).map((n) => ({ 'Nhà máy': n.nha_may_id ? nmName(n.nha_may_id) : '(admin tổng)', 'Bộ phận': cat.name('bo_phan', n.bo_phan_id),
-    'Mã NV': n.ma_nv, 'Họ tên': n.ho_ten, 'Vai trò': VAI_TRO[n.vai_tro], 'Đã cấp tài khoản': yn(!!n.user_id), 'Đang hoạt động': yn(n.hoat_dong) })));
-  add('Cài đặt', S.cat.cai_dat.filter((c) => scope.includes(c.nha_may_id)).map((c) => ({ 'Nhà máy': nmName(c.nha_may_id), 'Ngưỡng dừng ngắn (phút)': c.nguong_dung_ngan, 'Cảnh báo quá hạn (giờ)': c.gio_qua_han })));
-  XLSX.writeFile(wb, `DanhMuc_OEE_${today()}.xlsx`);
-  toast('Đã xuất danh mục (không gồm PIN)', 'success');
-}

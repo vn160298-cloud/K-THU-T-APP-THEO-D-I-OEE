@@ -77,7 +77,7 @@ export async function render(main, { q }) {
     const agg = aggregate(mine.map((e) => e.rep.c));
     const repM = S.cat.byId.may[cat.lastMay(l.id)];
     const lv = oeeLevel(agg.OEE, repM?.nguong_xanh, repM?.nguong_vang);
-    const f = openF.filter((x) => mem.some((mm) => mm.may_id === x.phieu.may_id));
+    const f = openF.filter((x) => x.phieu.day_chuyen_id === l.id && mem.some((mm) => mm.may_id === x.phieu.may_id));
     return `<div class="mc ${lv || ''}">
       <div class="lc-row"><b>${esc(l.ten)}</b>${agg.OEE != null ? `<b>${fmtPct(agg.OEE)}</b>` : '<span class="t-cap">—</span>'}</div>
       <div class="t-cap">${mem.map((x) => { const n = f.filter((y) => y.phieu.may_id === x.may_id).length; return `${esc(cat.name('may', x.may_id, 'ma'))}${n ? ` (${n} lỗi)` : ''}`; }).join(' → ')}</div>

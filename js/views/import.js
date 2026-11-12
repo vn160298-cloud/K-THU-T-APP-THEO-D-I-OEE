@@ -1,7 +1,7 @@
 // Nhập dữ liệu cũ (phiếu giấy / Excel) bằng file Excel mẫu
 import { S, cat, can, sb, errText } from '../api.js';
 import { clearCalc } from '../data.js';
-import { esc, icon, uuid, pad, toISO, fmtDate, noAccent, TINH_TRANG, NHOM_TT, hm, sortCat } from '../lib.js';
+import { esc, icon, uuid, pad, toISO, fmtDate, noAccent, TINH_TRANG, NHOM_TT, hm, sortCat, xlsxSheet, toInt, toNum, isLoiKhac } from '../lib.js';
 import { $, toast } from '../ui.js';
 
 const H_PHIEU = ['MaPhieu', 'Ngay', 'MaMay', 'Ca', 'MaSanPham', 'TocDo_sp_phut', 'GioBatDau', 'GioKetThuc', 'NghiGiuaCa_phut', 'TongSL', 'LoiKhoiDong', 'LoiQuaTrinh', 'MaNV_VanHanh', 'MaNV_ToTruong', 'MaNV_KyThuat', 'GhiChu'];
@@ -68,8 +68,8 @@ const timeOf = (v) => {
   if (typeof v === 'number' && v >= 0 && v < 1) { const m = Math.round(v * 1440); return `${pad(Math.floor(m / 60) % 24)}:${pad(m % 60)}`; }
   const m = String(v || '').trim().match(/^(\d{1,2})[:hH.](\d{2})/); return m ? `${pad(m[1])}:${m[2]}` : null;
 };
-const intOf = (v) => (v === '' || v == null ? null : Math.round(Number(String(v).replace(/[^\d.-]/g, ''))));
-const numOf = (v) => (v === '' || v == null ? null : Number(String(v).replace(',', '.')));
+const intOf = (v) => toInt(v);   // "12.450" -> 12450
+const numOf = (v) => toNum(v);   // "12,5" -> 12.5
 const k = (s) => noAccent(String(s ?? '').trim());
 
 function parse(wb) {
@@ -99,6 +99,7 @@ function parse(wb) {
       const code = codes.find((x) => k(x.ma) === k(d.MaLoi)) || codes.find((x) => k(x.ten) === k(d.TenLoi));
       if (!code) errors.push(`Lần dừng ${j + 1}: không có mã lỗi "${d.MaLoi || d.TenLoi}" của máy ${r.MaMay}`);
       const a = timeOf(d.TuGio), b = timeOf(d.DenGio); if (!a || !b) errors.push(`Lần dừng ${j + 1}: thiếu giờ`);
+      if (code && isLoiKhac(code.ten) && !String(d.GhiChu || '').trim()) errors.push(`Lần dừng ${j + 1}: "${code.ten}" phải ghi rõ lỗi cụ thể ở cột GhiChu`);
       const tt = ttOf(d.TinhTrang); if (!tt) errors.push(`Lần dừng ${j + 1}: tình trạng "${d.TinhTrang}" không hợp lệ`);
       return { id: uuid(), stt: j + 1, ma_loi_id: code?.id || null, gio_bd: a, gio_kt: b, van_de_cl: String(d.VanDeChatLuong || '') || null,
         nguoi_xu_ly_id: findNs(d.MaNV_XuLy)?.id || null, tinh_trang: tt || 'da_xu_ly', ghi_chu: String(d.GhiChu || '') || null };
@@ -123,7 +124,7 @@ function template() {
   if (!window.XLSX) return toast('Chưa tải được thư viện Excel — kiểm tra mạng', 'danger');
   const m = cat.may()[0], c = m ? cat.ca(m.bo_phan_id)[0] : null, s = cat.sanPham()[0], code = m ? cat.maLoi(m.id)[0] : null;
   const wb = XLSX.utils.book_new();
-  const sheet = (name, header, rows) => XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows, { header }), name);
+  const sheet = (name, header, rows) => XLSX.utils.book_append_sheet(wb, xlsxSheet(rows, { header }), name);
   sheet('Phieu', H_PHIEU, [{ MaPhieu: 'P001', Ngay: '20/10/2026', MaMay: m?.ma, Ca: c?.ten, MaSanPham: s?.ma, TocDo_sp_phut: '', GioBatDau: c ? hm(c.gio_bd) : '06:00', GioKetThuc: c ? hm(c.gio_kt) : '14:00',
     NghiGiuaCa_phut: c?.nghi_phut ?? 30, TongSL: 15000, LoiKhoiDong: 20, LoiQuaTrinh: 35, MaNV_VanHanh: 'VH01', MaNV_ToTruong: 'TT01', MaNV_KyThuat: 'KT01', GhiChu: 'Dòng ví dụ — xóa trước khi nhập' }]);
   sheet('DungMay', H_DUNG, [{ MaPhieu: 'P001', MaLoi: code?.ma, TenLoi: code?.ten, TuGio: '08:10', DenGio: '08:35', VanDeChatLuong: '', MaNV_XuLy: 'KT01', TinhTrang: 'Đã xử lý', GhiChu: '' }]);
