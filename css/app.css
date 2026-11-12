@@ -85,7 +85,13 @@ h1, h2, h3 { margin: 0; }
 .cal { user-select: none; }
 .cal-head { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2); }
 .cal-head .t-h3 { flex: 1; text-align: center; }
-.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+@media (max-width: 520px) {
+  .cal-grid { gap: 3px; }
+  .cal-big .cal-day { min-height: 68px; padding: 2px 3px; overflow: hidden; }
+  .cal-big .cal-day .cd-v { font-size: 10px; line-height: 12px; }
+  .cal-big .cal-day .cd-v.muted { display: none; } /* số phiếu: chỉ hiện trên màn hình rộng */
+}
 .cal-dow { text-align: center; font-size: 12px; font-weight: 600; color: var(--ink-muted); padding: var(--space-1) 0; }
 .cal-day { border: 1px solid var(--line); background: var(--surface-raised); border-radius: var(--radius-md); min-height: 44px; font: inherit; color: var(--ink); cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding: 2px; }
 .cal-day.out { opacity: .35; }
