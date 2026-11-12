@@ -1,12 +1,12 @@
 // Service Worker — cho app chạy khi mất mạng. Tăng VERSION mỗi lần cập nhật app.
-const VERSION = 'oee-v1.1.0';
+const VERSION = 'oee-v1.2.0';
 const SHELL = [
   './', './index.html', './manifest.webmanifest',
   './css/nutrinest.css', './css/app.css',
   './js/app.js', './js/config.js', './js/data.js', './js/lib.js', './js/ui.js', './js/api.js', './js/store.js', './js/kpi.js',
   './js/views/login.js', './js/views/today.js', './js/views/form.js', './js/views/list.js', './js/views/faults.js',
   './js/views/kpis.js', './js/views/calendar.js', './js/views/reports.js', './js/views/admin.js',
-  './js/views/import.js', './js/views/account.js', './js/views/print.js',
+  './js/views/import.js', './js/views/account.js', './js/views/print.js', './js/views/catalog_xlsx.js',
   './icons/logo.png', './icons/icon-192.png', './icons/icon-512.png', './icons/icon-180.png'
 ];
 const CDN = ['cdn.jsdelivr.net', 'cdnjs.cloudflare.com', 'fonts.googleapis.com', 'fonts.gstatic.com'];
