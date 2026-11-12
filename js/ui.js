@@ -1,5 +1,5 @@
 // Thành phần giao diện dùng chung: toast, sheet, ô chọn có tìm kiếm, lịch chọn ngày
-import { esc, icon, fmtDate, today, parseISO, toISO, pad, DOW, MONTHS, noAccent, addDays, monthStart, monthEnd } from './lib.js';
+import { esc, icon, fmtDate, today, parseISO, toISO, pad, DOW, MONTHS, noAccent, addDays, monthStart, monthEnd, toInt, toNum, numInput } from './lib.js';
 
 export const el = (html) => { const t = document.createElement('template'); t.innerHTML = html.trim(); return t.content.firstElementChild; };
 export const $ = (sel, root = document) => root.querySelector(sel);
@@ -60,14 +60,39 @@ export const setFieldError = (f, text) => {
   if (text) { m.hidden = false; m.innerHTML = `${icon('fail', 14)}${esc(text)}`; } else if (!m.dataset.keep) { m.hidden = true; m.innerHTML = ''; }
 };
 
-export function inputField({ label, value = '', type = 'text', unit, inputmode, placeholder = '', req, msg, span, readonly, onInput, size = 'lg', attrs = '' }) {
+/**
+ * num: 'int' -> số nguyên, tự thêm dấu chấm hàng nghìn khi gõ (12450 -> 12.450);
+ *      'dec' -> số thập phân, định dạng khi rời ô (1234,5 -> 1.234,5). onInput vẫn nhận chuỗi; đọc bằng toInt / toNum.
+ */
+export function inputField({ label, value = '', type = 'text', unit, inputmode, placeholder = '', req, msg, span, readonly, onInput, size = 'lg', attrs = '', num }) {
+  if (num) { inputmode = num === 'int' ? 'numeric' : 'decimal'; value = typeof value === 'number' ? numInput(value) : value; }
   const f = wrapField(label, `<div class="nn-input-wrap nn-input-${size} ${readonly ? 'auto-fill' : ''}">
     <input id="__ID__" class="nn-input" type="${type}" ${inputmode ? `inputmode="${inputmode}"` : ''} value="${esc(value)}" placeholder="${esc(placeholder)}" ${readonly ? 'readonly' : ''} ${attrs}>
     ${unit ? `<span class="nn-input-unit">${esc(unit)}</span>` : ''}</div>`, { req, msg, span });
   const inp = $('input', f);
+  if (num) bindNum(inp, num);
   if (onInput) inp.addEventListener('input', () => onInput(inp.value, f));
   f.input = inp;
   return f;
+}
+
+/** Gắn định dạng số kiểu Việt Nam cho 1 ô input (dùng cả cho ô tự dựng trong bảng) */
+export function bindNum(inp, kind = 'int') {
+  if (kind === 'int') {
+    inp.addEventListener('input', () => {
+      const raw = inp.value, pos = inp.selectionStart ?? raw.length;
+      const digitsBefore = raw.slice(0, pos).replace(/\D/g, '').length;
+      const n = toInt(raw);
+      const out = n == null ? '' : numInput(n);
+      if (out === raw) return;
+      inp.value = out;
+      let i = 0, seen = 0;
+      while (i < out.length && seen < digitsBefore) { if (/\d/.test(out[i])) seen++; i++; }
+      try { inp.setSelectionRange(i, i); } catch { /* type không hỗ trợ */ }
+    });
+  } else {
+    inp.addEventListener('blur', () => { const n = toNum(inp.value); if (n != null) inp.value = numInput(n); });
+  }
 }
 
 export function textField({ label, value = '', placeholder = '', span = true, onInput, size = 'lg' }) {
@@ -96,13 +121,14 @@ export function selectField({ label, value = '', options = [], req, placeholder 
 }
 
 /** Danh sách xổ xuống có ô tìm kiếm — dùng cho danh sách dài (máy, mã lỗi, nhân sự) */
-export function comboField({ label, value = '', options = [], req, placeholder = '— Chọn —', onChange, size = 'lg', span, msg, allowClear = true }) {
+/** more: {label, options: () => [...]} -> cuối danh sách có nút mở rộng (vd. "Xem tất cả nhân sự") */
+export function comboField({ label, value = '', options = [], req, placeholder = '— Chọn —', onChange, size = 'lg', span, msg, allowClear = true, more }) {
   const f = wrapField(label, `<div class="nn-input-wrap nn-input-${size}">
     <button type="button" id="__ID__" class="combo-btn"></button><span class="sel-caret">${icon('search', 18)}</span></div>`, { req, span, msg });
   const btn = $('.combo-btn', f);
   let cur = value;
   const paint = () => {
-    const o = options.find((x) => String(x.value) === String(cur));
+    const o = options.find((x) => String(x.value) === String(cur)) || (more && cur ? more.options().find((x) => String(x.value) === String(cur)) : null);
     btn.textContent = o ? o.label : placeholder;
     btn.classList.toggle('placeholder', !o);
   };
@@ -111,9 +137,10 @@ export function comboField({ label, value = '', options = [], req, placeholder =
     const box = el(`<div><div class="nn-input-wrap nn-input-lg" style="margin-bottom:12px">${icon('search', 18, 'muted')}
       <input class="nn-input" placeholder="Gõ để tìm (không cần dấu)…" autocomplete="off"></div><ul class="opt-list"></ul></div>`);
     const q = $('input', box), ul = $('ul', box);
+    let expanded = false;
     const draw = () => {
       const k = noAccent(q.value);
-      const list = options.filter((o) => !k || noAccent(`${o.label} ${o.sub || ''} ${o.group || ''}`).includes(k));
+      const list = (expanded ? more.options() : options).filter((o) => !k || noAccent(`${o.label} ${o.sub || ''} ${o.group || ''}`).includes(k));
       let g = null, html = '';
       if (allowClear && cur) html += `<li><button type="button" data-v="">${icon('x', 16)}<span class="muted">Bỏ chọn</span></button></li>`;
       for (const o of list.slice(0, 300)) {
@@ -121,12 +148,15 @@ export function comboField({ label, value = '', options = [], req, placeholder =
         html += `<li><button type="button" data-v="${esc(o.value)}" class="${String(o.value) === String(cur) ? 'is-on' : ''}">
           <span>${esc(o.label)}</span>${o.sub ? `<span class="opt-sub">${esc(o.sub)}</span>` : ''}</button></li>`;
       }
-      ul.innerHTML = html || '<li class="empty">Không tìm thấy</li>';
+      if (!html || !list.length) html += '<li class="empty">Không tìm thấy</li>';
+      if (more && !expanded) html += `<li><button type="button" data-more>${icon('plus', 16)}<span>${esc(more.label)}</span></button></li>`;
+      ul.innerHTML = html;
     };
     draw();
     q.addEventListener('input', draw);
     const s = openSheet({ title: label, body: box });
     ul.addEventListener('click', (e) => {
+      if (e.target.closest('button[data-more]')) { expanded = true; draw(); q.focus(); return; }
       const b = e.target.closest('button[data-v]'); if (!b) return;
       cur = b.dataset.v; paint(); s.close(); onChange?.(cur, f);
     });

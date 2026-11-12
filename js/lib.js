@@ -51,10 +51,34 @@ export const uuid = () => (crypto.randomUUID ? crypto.randomUUID()
 export const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
 export const by = (k) => (a, b) => (a[k] ?? 0) > (b[k] ?? 0) ? 1 : (a[k] ?? 0) < (b[k] ?? 0) ? -1 : 0;
 export const sortCat = (arr) => [...arr].sort((a, b) => (a.thu_tu ?? 0) - (b.thu_tu ?? 0) || String(a.ma ?? a.ten).localeCompare(String(b.ma ?? b.ten), 'vi', { numeric: true }));
-/** Số thập phân: chấp nhận cả "12,5" và "12.5" */
-export const toNum = (v) => { if (v === '' || v == null) return null; const n = Number(String(v).trim().replace(/\s/g, '').replace(',', '.')); return isFinite(n) ? n : null; };
+/** Số kiểu Việt Nam: dấu chấm phân cách hàng nghìn, dấu phẩy thập phân.
+ *  "1.234,5" -> 1234.5 · "12,5" -> 12.5 · "1.500" -> 1500 · "1.5" -> 1.5 (một dấu chấm không theo nhóm 3 số = thập phân) */
+export const toNum = (v) => {
+  if (v === '' || v == null) return null;
+  if (typeof v === 'number') return isFinite(v) ? v : null;
+  let s = String(v).trim().replace(/\s/g, '');
+  if (!s) return null;
+  if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.');
+  else if (/^-?\d{1,3}(\.\d{3})+$/.test(s)) s = s.replace(/\./g, '');
+  const n = Number(s);
+  return isFinite(n) ? n : null;
+};
 /** Số nguyên (sản lượng): bỏ dấu phân cách hàng nghìn "12.450" -> 12450 */
-export const toInt = (v) => { if (v === '' || v == null) return null; const s = String(v).replace(/[^\d]/g, ''); return s ? parseInt(s, 10) : null; };
+export const toInt = (v) => { if (v === '' || v == null) return null; if (typeof v === 'number') return Math.round(v); const s = String(v).replace(/[^\d]/g, ''); return s ? parseInt(s, 10) : null; };
+/** Hiện số trong ô nhập: 12450 -> "12.450", 12.5 -> "12,5" */
+export const numInput = (n) => (n == null || n === '' || !isFinite(+n) ? '' : new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 4 }).format(+n));
+/** Tên lỗi là "lỗi khác" (Khác, Lỗi khác, Loi khac…) -> bắt buộc ghi chú. Không nhầm "khách", "khắc". Giống hàm la_loi_khac() trên máy chủ */
+export const isLoiKhac = (t) => /[Kk][Hh][ÁáAa][Cc](?![A-Za-z])/.test(String(t || ''));
+/** Sheet Excel từ mảng đối tượng; cột số hiện dấu phân cách hàng nghìn (#,##0) */
+export function xlsxSheet(arr, opts) {
+  const ws = XLSX.utils.json_to_sheet(arr, opts);
+  for (const k of Object.keys(ws)) {
+    const c = ws[k];
+    if (k[0] === '!' || !c || c.t !== 'n') continue;
+    c.z = Number.isInteger(c.v) ? '#,##0' : '#,##0.0##';
+  }
+  return ws;
+}
 export const noAccent = (s) => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase();
 
 // ---------- Icon (SVG 24×24 chuẩn NutriNest) ----------

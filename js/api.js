@@ -34,6 +34,15 @@ export async function login(ma, pin) {
   return S.profile;
 }
 
+/** Xác nhận lại bằng PIN của chính người đang đăng nhập (dùng trước thao tác quan trọng) */
+export async function verifyPin(pin) {
+  if (!navigator.onLine) throw new Error('Cần kết nối mạng để xác nhận PIN');
+  const { data, error } = await sb.auth.signInWithPassword({ email: maToEmail(S.profile.ma_nv), password: pinToPassword(pin) });
+  if (error) throw new Error(/Invalid login/i.test(error.message) ? 'PIN không đúng' : error.message);
+  S.session = data.session;
+  return true;
+}
+
 export async function logout() {
   try { await sb.auth.signOut(); } catch { /* mất mạng vẫn cho thoát */ }
   lsDel('profile'); S.profile = null; S.session = null;
@@ -67,7 +76,10 @@ export const can = {
 
 // ---------- Danh mục ----------
 const TABLES = ['nha_may', 'bo_phan', 'khu_vuc', 'may', 'ma_loi', 'ly_do_ke_hoach', 'san_pham', 'toc_do', 'ca',
-  'day_chuyen', 'day_chuyen_may', 'nhan_su', 'cai_dat', 'may_san_pham', 'day_chuyen_san_pham', 'toc_do_day_chuyen'];
+  'day_chuyen', 'day_chuyen_may', 'nhan_su', 'cai_dat', 'may_san_pham', 'day_chuyen_san_pham', 'toc_do_day_chuyen',
+  'day_chuyen_tong', 'phan_cong'];
+
+const OPTIONAL = ['day_chuyen_tong', 'phan_cong'];
 
 async function fetchAll(table, build = (q) => q) {
   const out = [];
@@ -84,7 +96,8 @@ export async function loadCatalog(force = false) {
   let raw = lsGet('cat');
   if (force || !raw || navigator.onLine) {
     try {
-      const res = await Promise.all(TABLES.map((t) => fetchAll(t)));
+      // Bảng mới của v1.2: nếu chưa chạy SQL mới thì coi như rỗng, app vẫn chạy
+      const res = await Promise.all(TABLES.map((t) => fetchAll(t).catch((e) => { if (OPTIONAL.includes(t)) return []; throw e; })));
       raw = Object.fromEntries(TABLES.map((t, i) => [t, res[i]]));
       raw._at = new Date().toISOString();
       lsSet('cat', raw);
@@ -119,10 +132,20 @@ export const cat = {
   caiDat: () => S.cat.byId.cai_dat[S.nm] || { nguong_dung_ngan: 5, gio_qua_han: 4 },
   dayChuyen: () => S.cat.day_chuyen.filter((d) => d.nha_may_id === S.nm && d.hoat_dong),
   caiDatOf: (nmId) => S.cat.byId.cai_dat[nmId] || { nguong_dung_ngan: 5, gio_qua_han: 4 },
-  /** Dây chuyền (đang dùng) mà máy thuộc về, hoặc null nếu là máy đơn */
-  lineOfMay: (mayId) => {
-    return S.cat.day_chuyen_may.filter((r) => r.may_id === mayId).map((r) => S.cat.byId.day_chuyen[r.day_chuyen_id]).find((l) => l && l.hoat_dong) || null;
-  },
+  /** Các dây chuyền (đang dùng) chứa máy — máy dùng chung có thể thuộc nhiều dây chuyền */
+  linesOfMay: (mayId) => S.cat.day_chuyen_may.filter((r) => r.may_id === mayId).map((r) => S.cat.byId.day_chuyen[r.day_chuyen_id]).filter((l) => l && l.hoat_dong),
+  /** Dây chuyền đầu tiên chứa máy, hoặc null nếu là máy đơn */
+  lineOfMay: (mayId) => cat.linesOfMay(mayId)[0] || null,
+  /** Tên các dây chuyền của máy, nối bằng dấu phẩy ('' nếu máy đơn) */
+  lineNames: (mayId) => cat.linesOfMay(mayId).map((l) => l.ten).join(', '),
+  /** Dây chuyền tổng (ghép công đoạn) và các công đoạn của nó */
+  dayChuyenTong: () => (S.cat.day_chuyen_tong || []).filter((d) => d.nha_may_id === S.nm && d.hoat_dong),
+  congDoan: (tongId) => S.cat.day_chuyen.filter((l) => l.tong_id === tongId && l.hoat_dong),
+  cdCuoi: (tongId) => { const cd = cat.congDoan(tongId); return cd.find((l) => l.la_cd_cuoi) || cd[cd.length - 1] || null; },
+  /** Phân công: người của ca × (dây chuyền | máy đơn). vaiTro: 'van_hanh' | 'to_truong' */
+  phanCong: (caId, t, vaiTro) => (S.cat.phan_cong || []).filter((x) => x.ca_id === caId && x.vai_tro === vaiTro
+    && (t.day_chuyen_id ? x.day_chuyen_id === t.day_chuyen_id : x.may_id === t.may_id))
+    .map((x) => S.cat.byId.nhan_su[x.nhan_su_id]).filter((n) => n && n.hoat_dong),
   members: (lineId) => S.cat.day_chuyen_may.filter((x) => x.day_chuyen_id === lineId).sort((a, b) => a.thu_tu - b.thu_tu),
   lastMay: (lineId) => { const m = cat.members(lineId); return (m.find((x) => x.la_may_cuoi) || m[m.length - 1])?.may_id || null; },
   /** Máy đơn: không thuộc dây chuyền nào đang dùng */
