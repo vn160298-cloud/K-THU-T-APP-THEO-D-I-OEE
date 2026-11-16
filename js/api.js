@@ -153,13 +153,22 @@ export const cat = {
   /** Tốc độ định mức: t = {day_chuyen_id} -> theo dây chuyền; t = {may_id} -> theo máy */
   tocDoChuyen: (lineId, spId) => S.cat.toc_do_day_chuyen.find((t) => t.day_chuyen_id === lineId && t.san_pham_id === spId)?.sp_phut ?? null,
   speedFor: (t, spId) => (t.day_chuyen_id ? cat.tocDoChuyen(t.day_chuyen_id, spId) : t.may_id ? cat.tocDo(t.may_id, spId) : null),
-  /** Sản phẩm của máy / dây chuyền (chưa gán gì thì hiện tất cả sản phẩm của nhà máy) */
+  /** Sản phẩm đã khai cho máy / dây chuyền — nghiêm ngặt, không thay bằng toàn bộ danh mục */
+  sanPhamGan: (t) => (t.day_chuyen_id ? S.cat.day_chuyen_san_pham.filter((x) => x.day_chuyen_id === t.day_chuyen_id)
+    : t.may_id ? S.cat.may_san_pham.filter((x) => x.may_id === t.may_id) : []).map((x) => x.san_pham_id),
+  /** Đã khai sản phẩm cho máy / dây chuyền này chưa */
+  coGanSanPham: (t) => cat.sanPhamGan(t).length > 0,
+  /** Sản phẩm của máy / dây chuyền (chưa khai gì thì hiện tất cả sản phẩm của nhà máy) */
   sanPhamFor: (t) => {
-    const ids = t.day_chuyen_id ? S.cat.day_chuyen_san_pham.filter((x) => x.day_chuyen_id === t.day_chuyen_id).map((x) => x.san_pham_id)
-      : t.may_id ? S.cat.may_san_pham.filter((x) => x.may_id === t.may_id).map((x) => x.san_pham_id) : [];
+    const ids = cat.sanPhamGan(t);
     const all = cat.sanPham();
     return ids.length ? all.filter((s) => ids.includes(s.id)) : all;
   },
+  /** Tên các dây chuyền / máy đơn được khai là chạy sản phẩm này */
+  chayTren: (spId) => [
+    ...S.cat.day_chuyen_san_pham.filter((x) => x.san_pham_id === spId).map((x) => cat.name('day_chuyen', x.day_chuyen_id)),
+    ...S.cat.may_san_pham.filter((x) => x.san_pham_id === spId).map((x) => cat.name('may', x.may_id, 'ma')),
+  ].filter(Boolean),
   name: (t, id, f = 'ten') => S.cat.byId[t]?.[id]?.[f] ?? '',
   person: (id) => S.cat.byId.nhan_su?.[id]?.ho_ten ?? '',
   mayLabel: (id) => { const m = S.cat.byId.may[id]; return m ? `${m.ma} · ${m.ten}` : '—'; },
