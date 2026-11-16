@@ -1,6 +1,6 @@
 // Lỗi cần xử lý (Kỹ thuật) + cập nhật tình trạng + Gửi qua Zalo
 import { S, cat, can, fetchOpenFaults, fetchFaults, rpc, errText } from '../api.js';
-import { esc, icon, fmtDate, hm, NHOM_TT, TINH_TRANG, ttBadge, fmtDateTime, today, addDays, VAI_TRO, stopAgeHours, badge } from '../lib.js';
+import { esc, icon, fmtDate, hm, NHOM_TT, MUC_DO, TINH_TRANG, ttBadge, mucDoBadge, fmtDateTime, today, addDays, VAI_TRO, stopAgeHours, badge } from '../lib.js';
 import { el, $, toast, openSheet, selectField, comboField, textField, rangeField, segmented } from '../ui.js';
 import { refreshFaultBadge } from '../app.js';
 
@@ -39,7 +39,7 @@ export async function render(main, { q }) {
       const age = stopAgeHours(r, r.phieu);
       const late = r.tinh_trang !== 'da_xu_ly' && age >= h;
       return `<div class="lc" style="cursor:default">
-        <div class="lc-row"><b>${esc(cat.mayLabel(r.phieu.may_id))}</b>${ttBadge(r.tinh_trang)}</div>
+        <div class="lc-row"><b>${esc(cat.mayLabel(r.phieu.may_id))}</b><span class="nn-row" style="padding:0;gap:6px">${mucDoBadge(r.muc_do)}${ttBadge(r.tinh_trang)}</span></div>
         ${r.phieu.day_chuyen_id ? `<div class="t-cap">Dây chuyền: ${esc(cat.name('day_chuyen', r.phieu.day_chuyen_id))}</div>` : ''}
         <div class="lc-row"><span>${esc(r.ten_loi || '')} <span class="chip nn-mono">${esc(r.ma_loi || '')}</span></span><span class="muted">${r.phut} phút</span></div>
         <div class="lc-row t-cap"><span>${fmtDate(r.phieu.ngay)} · ${esc(cat.name('ca', r.phieu.ca_id))} · ${hm(r.gio_bd)}–${hm(r.gio_kt)} · ${esc(NHOM_TT[r.dung_ngan ? 3 : r.nhom_ton_that] || '')}</span>
@@ -88,6 +88,7 @@ export async function shareZalo(stop, phieu) {
     `[OEE] LỖI MÁY ${may?.ma || ''} - ${may?.ten || ''}`,
     `Ngày ${fmtDate(phieu.ngay)} · ${cat.name('ca', phieu.ca_id)}`,
     `Lỗi: ${stop.ma_loi || ''} ${stop.ten_loi || ''} (${NHOM_TT[stop.dung_ngan ? 3 : stop.nhom_ton_that] || ''})`,
+    `Mức độ: ${(MUC_DO[stop.muc_do] || MUC_DO.dung_ngay).label}`,
     `Dừng: ${hm(stop.gio_bd)}–${hm(stop.gio_kt)} (${stop.phut ?? ''} phút)`,
     `Tình trạng: ${TINH_TRANG[stop.tinh_trang]?.label || ''}`,
     stop.nguoi_xu_ly_id ? `Người xử lý: ${cat.person(stop.nguoi_xu_ly_id)}` : 'Người xử lý: chưa giao',

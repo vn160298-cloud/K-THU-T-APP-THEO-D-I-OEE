@@ -2,7 +2,7 @@
 // Nhập = THÊM MỚI + CẬP NHẬT theo mã/tên, KHÔNG XÓA (muốn bỏ thì đặt "Đang dùng" = Không).
 // Trước khi nhập: xem trước số dòng thêm / sửa / lỗi, rồi xác nhận bằng PIN của admin.
 import { S, sb, cat, can, loadCatalog, verifyPin, errText } from '../api.js';
-import { esc, icon, hm, pad, today, NHOM_TT, LOAI_LOI, VAI_TRO, noAccent, toNum, xlsxSheet } from '../lib.js';
+import { esc, icon, hm, pad, today, NHOM_TT, LOAI_LOI, MUC_DO, VAI_TRO, noAccent, toNum, xlsxSheet } from '../lib.js';
 import { el, $, toast, openSheet, inputField } from '../ui.js';
 
 // ---------- Xác nhận bằng PIN admin ----------
@@ -80,6 +80,7 @@ export function exportCatalog() {
     { 'Hướng dẫn nhập lại file này vào app': '3. Cột có chữ "(chỉ xem)" app bỏ qua khi nhập. Cột Có/Không ghi "Có" hoặc "Không".' },
     { 'Hướng dẫn nhập lại file này vào app': '4. Vào Danh mục → Nhập từ Excel → chọn file → xem trước → nhập PIN admin để xác nhận.' },
     { 'Hướng dẫn nhập lại file này vào app': `5. Nhóm 6 tổn thất ghi số 1–6 (vd "1. ${NHOM_TT[1]}"). Loại lỗi: ${LOAI_LOI.join(', ')}. Vai trò: ${Object.values(VAI_TRO).join(', ')}.` },
+    { 'Hướng dẫn nhập lại file này vào app': `6. Mã lỗi có cột "Mức độ xử lý": ${Object.values(MUC_DO).map((x) => x.label).join(' hoặc ')}. Để trống = ${MUC_DO.dung_ngay.label}.` },
   ], ['Hướng dẫn nhập lại file này vào app']);
   add('Nhà máy', S.cat.nha_may.filter((n) => scope.includes(n.id)).map((n) => ({ 'Mã': n.ma, 'Tên nhà máy': n.ten, 'Đang dùng': yn(n.hoat_dong), 'Thứ tự': n.thu_tu })), SHEETS.nha_may.cols);
   add('Bộ phận', S.cat.bo_phan.filter(inScope).map((b) => ({ 'Nhà máy': nmName(b.nha_may_id), 'Bộ phận': b.ten, 'Đang dùng': yn(b.hoat_dong), 'Thứ tự': b.thu_tu })), SHEETS.bo_phan.cols);
@@ -87,7 +88,8 @@ export function exportCatalog() {
   add('Máy', S.cat.may.filter(inScope).map((m) => ({ 'Nhà máy': nmName(m.nha_may_id), 'Mã máy': m.ma, 'Tên máy': m.ten, 'Khu vực': cat.name('khu_vuc', m.khu_vuc_id), 'Bộ phận': cat.name('bo_phan', m.bo_phan_id),
     'Dây chuyền (chỉ xem)': cat.lineNames(m.id) || MAY_DON, 'OEE mục tiêu (%)': m.oee_muc_tieu, 'Ngưỡng xanh (%)': m.nguong_xanh, 'Ngưỡng vàng (%)': m.nguong_vang, 'Đang dùng': yn(m.hoat_dong), 'Thứ tự': m.thu_tu })), SHEETS.may.cols);
   add('Mã lỗi', S.cat.ma_loi.filter(mayIn).map((l) => ({ 'Nhà máy': nmName(mayOf(l.may_id)?.nha_may_id), 'Mã máy': mayOf(l.may_id)?.ma, 'Tên máy (chỉ xem)': mayOf(l.may_id)?.ten, 'Mã lỗi': l.ma, 'Tên lỗi': l.ten,
-    'Nhóm 6 tổn thất': `${l.nhom_ton_that}. ${NHOM_TT[l.nhom_ton_that]}`, 'Loại lỗi': l.loai_loi, 'Đang dùng': yn(l.hoat_dong), 'Thứ tự': l.thu_tu })), SHEETS.ma_loi.cols);
+    'Nhóm 6 tổn thất': `${l.nhom_ton_that}. ${NHOM_TT[l.nhom_ton_that]}`, 'Loại lỗi': l.loai_loi,
+    'Mức độ xử lý': (MUC_DO[l.muc_do] || MUC_DO.dung_ngay).label, 'Đang dùng': yn(l.hoat_dong), 'Thứ tự': l.thu_tu })), SHEETS.ma_loi.cols);
   add('Dây chuyền tổng', (S.cat.day_chuyen_tong || []).filter(inScope).map((t) => ({ 'Nhà máy': nmName(t.nha_may_id), 'Dây chuyền tổng': t.ten,
     'Các công đoạn (chỉ xem)': S.cat.day_chuyen.filter((l) => l.tong_id === t.id).map((l) => l.ten).join(' + '), 'Đang dùng': yn(t.hoat_dong), 'Thứ tự': t.thu_tu })), SHEETS.day_chuyen_tong.cols);
   add('Dây chuyền', S.cat.day_chuyen.filter(inScope).map((l) => ({ 'Nhà máy': nmName(l.nha_may_id), 'Dây chuyền': l.ten, 'Số máy (chỉ xem)': cat.members(l.id).length,
@@ -181,17 +183,21 @@ const SHEETS = {
       const tong = str(r['Thuộc dây chuyền tổng']) ? X.byName('day_chuyen_tong', nm, r['Thuộc dây chuyền tổng'], 'dây chuyền tổng') : null;
       return { rec: { nha_may_id: nm, ten, tong_id: tong?.id || null, la_cd_cuoi: tong ? boolOf(r['Công đoạn cuối'], false) : false, hoat_dong: boolOf(r['Đang dùng']), thu_tu: numOf(r['Thứ tự'], 'Thứ tự', { def: 0 }) },
         old: X.findLine(nm, ten, true), pkey: `${nm}|${k(ten)}` }; } },
-  ma_loi: { sheet: 'Mã lỗi', table: 'ma_loi', phase: 4, cols: ['Nhà máy', 'Mã máy', 'Tên máy (chỉ xem)', 'Mã lỗi', 'Tên lỗi', 'Nhóm 6 tổn thất', 'Loại lỗi', 'Đang dùng', 'Thứ tự'],
+  ma_loi: { sheet: 'Mã lỗi', table: 'ma_loi', phase: 4, cols: ['Nhà máy', 'Mã máy', 'Tên máy (chỉ xem)', 'Mã lỗi', 'Tên lỗi', 'Nhóm 6 tổn thất', 'Loại lỗi', 'Mức độ xử lý', 'Đang dùng', 'Thứ tự'],
     build: (r, X) => { const nm = X.nm(r); const m = X.findMay(nm, need(r['Mã máy'], 'mã máy')); const ma = need(r['Mã lỗi'], 'mã lỗi');
       const g = parseInt(str(r['Nhóm 6 tổn thất']), 10);
       if (!(g >= 1 && g <= 6)) throw new Error(`Nhóm 6 tổn thất "${r['Nhóm 6 tổn thất']}" phải bắt đầu bằng số 1–6`);
       const loai = LOAI_LOI.find((x) => k(x) === k(r['Loại lỗi']));
       if (!loai) throw new Error(`Loại lỗi "${r['Loại lỗi']}" không có (${LOAI_LOI.join(', ')})`);
       const ten = need(r['Tên lỗi'], 'tên lỗi');
+      // Mức độ xử lý: để trống hoặc file cũ không có cột này -> mặc định phải dừng máy chỉnh ngay
+      const mdTxt = str(r['Mức độ xử lý']);
+      const md = !mdTxt ? 'dung_ngay' : (Object.keys(MUC_DO).find((x) => k(MUC_DO[x].label) === k(mdTxt) || k(MUC_DO[x].ngan) === k(mdTxt) || k(x) === k(mdTxt)));
+      if (!md) throw new Error(`Mức độ xử lý "${mdTxt}" không có (${Object.values(MUC_DO).map((x) => x.label).join(', ')})`);
       // Khớp theo mã lỗi; nếu máy có nhiều mã trùng nhau (bộ mã tạm chép từ máy khác) thì khớp thêm theo tên lỗi
       const cand = m.id === PENDING ? [] : S.cat.ma_loi.filter((l) => l.may_id === m.id && k(l.ma) === k(ma));
       const old = cand.length > 1 ? cand.find((l) => k(l.ten) === k(ten)) || null : cand[0] || null;
-      return { rec: { may_id: m.id, ma, ten, nhom_ton_that: g, loai_loi: loai, hoat_dong: boolOf(r['Đang dùng']), thu_tu: numOf(r['Thứ tự'], 'Thứ tự', { def: 0 }) },
+      return { rec: { may_id: m.id, ma, ten, nhom_ton_that: g, loai_loi: loai, muc_do: md, hoat_dong: boolOf(r['Đang dùng']), thu_tu: numOf(r['Thứ tự'], 'Thứ tự', { def: 0 }) },
         old, pkey: `${k(r['Mã máy'])}|${k(ma)}|${k(ten)}` }; } },
   day_chuyen_may: { sheet: 'Dây chuyền - Máy', table: 'day_chuyen_may', phase: 4, cols: ['Nhà máy', 'Dây chuyền', 'Thứ tự', 'Mã máy', 'Tên máy (chỉ xem)', 'Máy cuối chuyền'],
     build: (r, X) => { const nm = X.nm(r); const l = X.findLine(nm, need(r['Dây chuyền'], 'dây chuyền')); const m = X.findMay(nm, need(r['Mã máy'], 'mã máy'));
