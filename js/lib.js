@@ -146,8 +146,16 @@ export const NHOM_TT = {
   6: 'Lỗi khởi động',
 };
 export const LOAI_LOI = ['Cơ', 'Điện', 'Vận hành', 'Nguyên liệu', 'Tiện ích', 'Chất lượng', 'Khác'];
+// v1.3: mức độ xử lý của lỗi — phải dừng máy chỉnh ngay, hay chạy tạm rồi chỉnh sau
+export const MUC_DO = {
+  dung_ngay: { label: 'Dừng máy — chỉnh ngay', ngan: 'Chỉnh ngay', tone: 'danger', icon: 'fail' },
+  chay_tam: { label: 'Chạy tạm — chỉnh sau', ngan: 'Chỉnh sau', tone: 'warning', icon: 'hold' },
+};
+/** Giá trị ô "Tên lỗi" cho lỗi khác không khai trong danh mục (mỗi máy luôn có) */
+export const LOI_KHAC = { id: 'khac', ten: 'Lỗi khác (ghi rõ ở ghi chú)' };
 
 export const badge = (tone, ic, text, size = 14) => `<span class="nn-status nn-tone-${tone}">${icon(ic, size)}${esc(text)}</span>`;
+export const mucDoBadge = (k) => { const m = MUC_DO[k] || MUC_DO.dung_ngay; return badge(m.tone, m.icon, m.ngan); };
 export const ttBadge = (k) => { const t = TINH_TRANG[k] || TINH_TRANG.cho_xu_ly; return badge(t.tone, t.icon, t.label); };
 export const phieuBadge = (k) => { const t = TRANG_THAI_PHIEU[k] || TRANG_THAI_PHIEU.da_gui; return badge(t.tone, t.icon, t.label); };
 
