@@ -172,3 +172,11 @@ h1, h2, h3 { margin: 0; }
   .main:has(.action-bar) { padding-bottom: calc(var(--tabbar-h, 58px) + 96px); }
   .toast-wrap { bottom: calc(var(--tabbar-h, 58px) + 84px); }
 }
+
+/* v1.7: bảng báo cáo giao ca — chữ dài tự xuống dòng, không bị khuất */
+.gc-tb td { vertical-align: top; white-space: normal; }
+.gc-tb th { white-space: normal; min-width: 56px; }
+.gc-tb textarea.gc-ta { resize: none; overflow: hidden; min-height: 36px; line-height: 1.35; padding-top: 7px; padding-bottom: 7px; white-space: pre-wrap; word-break: break-word; }
+.gc-tb .nn-input { min-height: 36px; }
+.gc-auto { display: inline-block; min-width: 48px; padding: 8px 4px; font-variant-numeric: tabular-nums; color: var(--ink); word-break: break-word; }
+.nn-input-wrap.ta textarea { resize: vertical; }
