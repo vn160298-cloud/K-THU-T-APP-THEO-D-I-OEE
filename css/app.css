@@ -158,3 +158,17 @@ h1, h2, h3 { margin: 0; }
 .pr-title { flex: 1; text-align: center; font-weight: 700; font-size: 18px; }
 .pr-sign { display: grid; grid-template-columns: repeat(3, 1fr); text-align: center; gap: var(--space-4); margin-top: var(--space-6); }
 .pr-sign div { min-height: 80px; }
+
+/* v1.5: thanh nút thao tác chính (Gửi / Xác nhận / Mở khóa…) nổi ở cạnh dưới điện thoại, ngay trên thanh menu —
+   bấm được bằng ngón cái mà không phải cuộn trang. Máy tính: nằm bình thường trong trang. */
+@media (max-width: 899px) {
+  .action-bar { position: fixed; left: 0; right: 0; bottom: var(--tabbar-h, calc(58px + env(safe-area-inset-bottom))); z-index: 25;
+    margin: 0 !important; border-radius: 0 !important; border: 0; border-top: 1px solid var(--line);
+    padding: var(--space-2) var(--space-3) !important; box-shadow: 0 -6px 16px color-mix(in srgb, var(--ink) 12%, transparent); }
+  .action-bar > .nn-row { flex-wrap: nowrap !important; overflow-x: auto; justify-content: flex-start !important; gap: var(--space-2); -webkit-overflow-scrolling: touch; }
+  .action-bar .nn-btn { flex: 0 0 auto; white-space: nowrap; }
+  .action-bar .nn-btn-primary { order: -1; }
+  .action-bar label { white-space: nowrap; flex: 0 0 auto; }
+  .main:has(.action-bar) { padding-bottom: calc(var(--tabbar-h, 58px) + 96px); }
+  .toast-wrap { bottom: calc(var(--tabbar-h, 58px) + 84px); }
+}
