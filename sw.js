@@ -1,5 +1,5 @@
 // Service Worker — cho app chạy khi mất mạng. Tăng VERSION mỗi lần cập nhật app.
-const VERSION = 'oee-v1.5.0';
+const VERSION = 'oee-v1.5.1';
 const SHELL = [
   './', './index.html', './manifest.webmanifest',
   './css/nutrinest.css', './css/app.css',
@@ -38,9 +38,12 @@ self.addEventListener('fetch', (e) => {
     return;
   }
 
-  // File của app: mạng trước (luôn mới), mất mạng thì dùng cache
+  // File của app: mạng trước (luôn mới), mất mạng thì dùng cache.
+  // v1.5.1: hỏi lại máy chủ mỗi lần (cache: 'no-cache') — GitHub Pages cho trình duyệt giữ file 10 phút,
+  // nếu không thì ngay sau khi cập nhật có thể trộn file cũ + file mới và báo lỗi "does not provide an export".
   if (url.origin === self.location.origin) {
-    e.respondWith(fetch(req).then((res) => {
+    const fresh = req.mode === 'navigate' ? req : new Request(req, { cache: 'no-cache' });
+    e.respondWith(fetch(fresh).then((res) => {
       const copy = res.clone();
       caches.open(VERSION).then((c) => c.put(req, copy));
       return res;
