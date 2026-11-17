@@ -1,13 +1,13 @@
 // Ghi phiếu vận hành: danh sách nháp, form phiếu (máy đơn hoặc dây chuyền; tự lưu, ngoại tuyến), chi tiết phiếu
 import { S, sb, cat, can, submitPhieu, saveDraftServer, deleteDraftServer, getPhieuGroup, flushQueue, rpc, errText } from '../api.js';
-import { drafts, queue } from '../store.js';
+import { drafts, queue, lsSet } from '../store.js';
 import { calcPhieu } from '../kpi.js';
 import {
   esc, icon, uuid, today, nowHM, hm, fmtDate, fmtNum, fmtPct, fmtMin, minutesBetween, timeInRange, toNum, toInt,
   NHOM_TT, TINH_TRANG, MUC_DO, LOI_KHAC, mucDoBadge, ttBadge, phieuBadge, oeeBadge, debounce, fmtDateTime, VAI_TRO, isLoiKhac,
 } from '../lib.js';
 import {
-  el, $, $$, toast, confirmBox, inputField, selectField, comboField, dateField, textField, kpiCard, segmented, timeField, openSheet,
+  el, $, $$, toast, confirmBox, inputField, selectField, comboField, dateField, textField, kpiCard, segmented, timeField, openSheet, multiField,
 } from '../ui.js';
 import { go, drawHeader } from '../app.js';
 import { openFaultUpdate, shareZalo } from './faults.js';
@@ -68,6 +68,7 @@ function newDraft() {
     id: uuid(), ngay: today(), may_id: '', day_chuyen_id: '', ca_id: '', san_pham_id: '', toc_do_dm: null,
     nguoi_van_hanh_id: me.vai_tro === 'van_hanh' ? me.id : '', to_truong_id: me.vai_tro === 'to_truong' ? me.id : '', ky_thuat_id: '',
     gio_bd: '', gio_kt: '', nghi_phut: 0, tong_sl: null, sl_loi_kd: 0, sl_loi_qt: 0, ghi_chu: '',
+    kip_id: '', sl_ke_hoach: null, ngay_sx: '', lo: '', so_thung: null, kip_sx_id: '', so_phieu_kho: '',
     ke_hoach: [], dung_may: [], bo_may: [], loi_sp: [], _kv: '', created_at: new Date().toISOString(),
   };
 }
@@ -75,7 +76,7 @@ function newDraft() {
 const stopToDraft = (d) => ({
   id: d.id, stt: d.stt, ma_loi_id: d.ma_loi_id, ma_loi: d.ma_loi, ten_loi: d.ten_loi, nhom_ton_that: d.nhom_ton_that, loai_loi: d.loai_loi,
   muc_do: d.muc_do || 'dung_ngay', _khac: !d.ma_loi_id && !!d.ten_loi,
-  gio_bd: hm(d.gio_bd), gio_kt: hm(d.gio_kt), van_de_cl: d.van_de_cl || '', nguoi_xu_ly_id: d.nguoi_xu_ly_id || '', tinh_trang: d.tinh_trang, ghi_chu: d.ghi_chu || '',
+  gio_bd: hm(d.gio_bd), gio_kt: hm(d.gio_kt), van_de_cl: d.van_de_cl || '', nguoi_xu_ly_id: d.nguoi_xu_ly_id || '', nguoi_ho_tro: d.nguoi_ho_tro || [], tinh_trang: d.tinh_trang, ghi_chu: d.ghi_chu || '',
 });
 
 const toDraft = (p) => ({
@@ -83,6 +84,8 @@ const toDraft = (p) => ({
   nguoi_van_hanh_id: p.nguoi_van_hanh_id || '', to_truong_id: p.to_truong_id || '', ky_thuat_id: p.ky_thuat_id || '',
   gio_bd: hm(p.gio_bd), gio_kt: hm(p.gio_kt), nghi_phut: p.nghi_phut, tong_sl: p.tong_sl, sl_loi_kd: p.sl_loi_kd, sl_loi_qt: p.sl_loi_qt,
   ghi_chu: p.ghi_chu || '', created_at: p.created_at, _edit: true, _trang_thai: p.trang_thai,
+  kip_id: p.kip_id || '', sl_ke_hoach: p.sl_ke_hoach ?? null, ngay_sx: p.ngay_sx || '', lo: p.lo || '', so_thung: p.so_thung ?? null,
+  kip_sx_id: p.kip_sx_id || '', so_phieu_kho: p.so_phieu_kho || '',
   ke_hoach: (p.dung_ke_hoach || []).map((k) => ({ ly_do_id: k.ly_do_id, ly_do_ten: k.ly_do_ten, gio_bd: hm(k.gio_bd), gio_kt: hm(k.gio_kt) })),
   dung_may: (p.dung_may || []).filter((s) => s.goc !== false).sort((a, b) => a.stt - b.stt).map(stopToDraft),
   loi_sp: loiSpToDraft(p),
@@ -221,6 +224,20 @@ function form(main, d) {
 
     // --- Thông tin chung
     const g1 = $('[data-g1]', main);
+    // v1.6: chọn nhà máy (admin tổng quản nhiều nhà máy); người khác thấy nhà máy của mình
+    if (can.adminTong() && S.cat.nha_may.filter((n) => n.hoat_dong).length > 1) {
+      g1.append(selectField({ label: 'Nhà máy', value: S.nm, req: true, options: S.cat.nha_may.filter((n) => n.hoat_dong).map((n) => ({ value: n.id, label: n.ten })),
+        onChange: async (v) => {
+          if (!v || v === S.nm) return;
+          if ((d.may_id || d.day_chuyen_id) && !(await confirmBox('Đổi nhà máy sẽ bỏ chọn dây chuyền / máy, ca, kíp, sản phẩm và các lần dừng đã chọn. Tiếp tục?', { ok: 'Đổi nhà máy' }))) return build();
+          S.nm = v; lsSet('nm', v); drawHeader();
+          Object.assign(d, { may_id: '', day_chuyen_id: '', ca_id: '', kip_id: '', kip_sx_id: '', san_pham_id: '', toc_do_dm: null, bo_may: [], _kv: '', loi_sp: [] });
+          d.dung_may.forEach((x) => { clearFault(x); x.may_id = ''; });
+          pickDefaultCa(); changed(); build();
+        } }));
+    } else {
+      g1.append(el(`<div class="nn-field"><span class="nn-label">Nhà máy</span><span class="chip dept" style="height:40px">${esc(cat.name('nha_may', S.nm))}</span></div>`));
+    }
     const kvs = kvOptions();
     if (kvs.length > 1) {
       g1.append(selectField({ label: 'Khu vực sản xuất', value: kvId(), placeholder: 'Tất cả khu vực', options: kvs,
@@ -268,6 +285,8 @@ function form(main, d) {
       dateField({ label: 'Ngày', value: d.ngay, req: true, onChange: (v) => { d.ngay = v; changed(); } }),
       selectField({ label: 'Ca', value: d.ca_id, req: true, options: caOptions().map((c) => ({ value: c.id, label: `${c.ten} (${hm(c.gio_bd)}–${hm(c.gio_kt)})` })),
         onChange: (v) => { d.ca_id = v; applyCa(); applyPeople(); changed(); build(); } }),
+      selectField({ label: 'Kíp', value: d.kip_id, placeholder: cat.kip().length ? '— Chọn kíp —' : 'Chưa khai kíp (Danh mục → Kíp)', options: cat.kip().map((k) => ({ value: k.id, label: k.ten })),
+        onChange: (v) => { d.kip_id = v; if (!d.kip_sx_id) d.kip_sx_id = v; changed(); } }),
       comboField({ label: 'Sản phẩm', value: d.san_pham_id, req: true, options: cat.sanPhamFor(target()).map((s) => ({ value: s.id, label: s.ten, sub: s.dvt ? `${s.ma} · ${s.dvt}` : s.ma })),
         msg: !(d.may_id || d.day_chuyen_id) ? ''
           : cat.coGanSanPham(target()) ? `Chỉ hiện sản phẩm đã khai cho ${isLine() ? 'dây chuyền' : 'máy'} này`
@@ -308,11 +327,26 @@ function form(main, d) {
       inputField({ label: 'Nghỉ + dừng có kế hoạch', value: d.nghi_phut ?? 0, unit: 'phút', num: 'int',
         msg: 'Cộng chung: nghỉ giữa ca, họp đầu ca, bảo trì định kỳ, không có đơn hàng… — không tính vào tổn thất',
         onInput: (v) => { d.nghi_phut = toInt(v) || 0; capInfo(); changed(); } }),
+      inputField({ label: 'SL kế hoạch', value: d.sl_ke_hoach ?? '', unit: dvt(), num: 'int', msg: 'Để tính SL còn lại trong báo cáo giao ca',
+        onInput: (v) => { d.sl_ke_hoach = toInt(v); changed(); } }),
       inputField({ label: 'Tổng sản lượng', value: d.tong_sl ?? '', unit: dvt(), num: 'int', req: true,
         msg: isLine() ? 'Đếm ở máy cuối chuyền, gồm cả hàng lỗi' : 'Gồm cả hàng lỗi', onInput: (v) => { d.tong_sl = toInt(v); changed(); } }),
       inputField({ label: 'Tổng sản lượng lỗi', value: tongLoiSp(d), unit: dvt(), num: 'int', readonly: true, msg: 'Tự cộng từ phần Lỗi sản phẩm bên dưới' }),
     );
     capInfo();
+
+    // --- v1.6: bộ phận Đóng gói ghi thêm thông tin lô hàng (lấy sang báo cáo giao ca)
+    const bpRep = S.cat.byId.may[repMayId()]?.bo_phan_id;
+    if (cat.laDongGoi(bpRep)) {
+      g2.append(
+        el('<div class="nn-field span-2"><span class="t-h3">Thông tin đóng gói</span></div>'),
+        dateField({ label: 'Ngày SX', value: d.ngay_sx, onChange: (v) => { d.ngay_sx = v; changed(); } }),
+        inputField({ label: 'Lô', value: d.lo || '', onInput: (v) => { d.lo = v.trim(); changed(); } }),
+        inputField({ label: 'Số thùng', value: d.so_thung ?? '', unit: 'thùng', num: 'int', onInput: (v) => { d.so_thung = toInt(v); changed(); } }),
+        selectField({ label: 'Kíp SX', value: d.kip_sx_id, placeholder: '— Chọn kíp —', options: cat.kip().map((k) => ({ value: k.id, label: k.ten })), onChange: (v) => { d.kip_sx_id = v; changed(); } }),
+        inputField({ label: 'Số phiếu giao Kho', value: d.so_phieu_kho || '', placeholder: 'VD: 11452', onInput: (v) => { d.so_phieu_kho = v.trim(); changed(); } }),
+      );
+    }
 
     // --- v1.4: bỏ phần Dừng có kế hoạch (gộp vào ô Nghỉ). Phiếu cũ có dữ liệu thì vẫn giữ nguyên khi gửi lại.
     if (d.ke_hoach.length) {
@@ -346,7 +380,7 @@ function form(main, d) {
     };
     $('[data-addstop]', main).onclick = () => {
       if (!d.may_id && !d.day_chuyen_id) return toast('Chọn dây chuyền / máy trước để hiện đúng bộ mã lỗi', 'warning');
-      d.dung_may.push({ id: uuid(), stt: d.dung_may.length + 1, may_id: '', ca_chuyen: true, ma_loi_id: '', muc_do: '', gio_bd: d.gio_bd && d.gio_kt && !timeInRange(nowHM(), d.gio_bd, d.gio_kt) ? '' : nowHM(), gio_kt: '', van_de_cl: '', nguoi_xu_ly_id: '', tinh_trang: 'cho_xu_ly', ghi_chu: '' });
+      d.dung_may.push({ id: uuid(), stt: d.dung_may.length + 1, may_id: '', ca_chuyen: true, ma_loi_id: '', muc_do: '', gio_bd: d.gio_bd && d.gio_kt && !timeInRange(nowHM(), d.gio_bd, d.gio_kt) ? '' : nowHM(), gio_kt: '', van_de_cl: '', nguoi_xu_ly_id: '', nguoi_ho_tro: [], tinh_trang: 'cho_xu_ly', ghi_chu: '' });
       changed(); build();
       $$('.stop', st).pop()?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     };
@@ -366,6 +400,10 @@ function form(main, d) {
     };
     preview();
   }
+
+  // Người xử lý: Kỹ thuật lên đầu danh sách
+  const peopleXL = () => cat.nhanSu().map((n) => ({ value: n.id, label: n.ho_ten, sub: VAI_TRO[n.vai_tro], k: n.vai_tro === 'ky_thuat' ? 0 : 1 }))
+    .sort((a, b) => a.k - b.k || a.label.localeCompare(b.label, 'vi'));
 
   function stopCard(s, i) {
     const line = isLine();
@@ -463,7 +501,8 @@ function form(main, d) {
       g.append(cb);
     }
     g.append(
-      comboField({ label: 'Người xử lý', value: s.nguoi_xu_ly_id, options: cat.nhanSu().map((n) => ({ value: n.id, label: n.ho_ten, sub: VAI_TRO[n.vai_tro] })), onChange: (v) => { s.nguoi_xu_ly_id = v; changed(); } }),
+      comboField({ label: 'Người xử lý chính', value: s.nguoi_xu_ly_id, options: peopleXL(), onChange: (v) => { s.nguoi_xu_ly_id = v; s.nguoi_ho_tro = (s.nguoi_ho_tro || []).filter((x) => x !== v); changed(); } }),
+      multiField({ label: 'Người hỗ trợ', value: s.nguoi_ho_tro || [], options: peopleXL(), span: true, onChange: (v) => { s.nguoi_ho_tro = v.filter((x) => x !== s.nguoi_xu_ly_id); changed(); } }),
       selectField({ label: 'Tình trạng lỗi', value: s.tinh_trang, placeholder: '— Chọn —', options: Object.entries(TINH_TRANG).map(([k, t]) => ({ value: k, label: t.label })), onChange: (v) => { s.tinh_trang = v || 'cho_xu_ly'; changed(); } }),
     );
     const khac = isLoiKhac(s.ten_loi);
@@ -613,7 +652,7 @@ export function askText(title, label, placeholder, okText, req = true) {
 
 const HANH_DONG = {
   tao: 'Tạo', sua: 'Sửa', xoa: 'Xóa', xac_nhan: 'Xác nhận & khóa', mo_khoa: 'Mở khóa', doi_tinh_trang: 'Đổi tình trạng lỗi',
-  yeu_cau_mo_khoa: 'Yêu cầu mở khóa', tu_choi_mo_khoa: 'Từ chối mở khóa', luu_tru: 'Chuyển lưu trữ',
+  yeu_cau_mo_khoa: 'Yêu cầu mở khóa', tu_choi_mo_khoa: 'Từ chối mở khóa', luu_tru: 'Chuyển lưu trữ', nhan_ca: 'Nhận ca',
 };
 const TRUONG = {
   tong_sl: 'Tổng SL', sl_loi_kd: 'Lỗi KĐ', sl_loi_qt: 'Lỗi QT', loi_sp: 'Lỗi sản phẩm', gio_bd: 'Giờ bắt đầu', gio_kt: 'Giờ kết thúc', nghi_phut: 'Nghỉ',
@@ -624,7 +663,7 @@ const BO_QUA = new Set(['xac_nhan_boi', 'xac_nhan_luc', 'cap_nhat_boi', 'cap_nha
 const showVal = (v) => (v == null || v === '' ? '—' : typeof v === 'object' ? (Array.isArray(v) ? `${v.length} dòng` : '…') : String(v).slice(0, 40));
 
 /** Phần "Lịch sử phiếu": nhật ký tự động (ai, lúc nào, làm gì, số cũ → số mới) */
-function historyHtml(logs, ycs) {
+export function historyHtml(logs, ycs) {
   if (!can.nhatKy() && !logs.some((l) => l.nguoi_id === S.profile.id)) return '';
   const rows = logs.map((l) => {
     let chi = '';
@@ -707,6 +746,8 @@ async function detail(main, id) {
         <tr><th>Kỹ thuật</th><td>${esc(cat.person(p.ky_thuat_id) || '—')}</td><th>Lỗi sản phẩm</th><td class="wrap">${(p.loi_sp || []).length
           ? p.loi_sp.map((x) => `${esc(x.ten)}: <b>${fmtNum(x.so_luong)}</b>${x.ghi_chu ? ` <span class="t-cap">(${esc(x.ghi_chu)})</span>` : ''}`).join('<br>')
           : (+p.sl_loi_kd ? `Khởi động ${fmtNum(p.sl_loi_kd)} · quá trình ${fmtNum(p.sl_loi_qt)}` : '—')}</td></tr>
+        <tr><th>Kíp</th><td>${esc(cat.name('kip', p.kip_id) || '—')}</td><th>SL kế hoạch</th><td class="num">${p.sl_ke_hoach != null ? fmtNum(p.sl_ke_hoach) : '—'}</td></tr>
+        ${p.lo || p.so_thung || p.ngay_sx || p.so_phieu_kho ? `<tr><th>Ngày SX · Lô</th><td>${p.ngay_sx ? fmtDate(p.ngay_sx) : '—'} · ${esc(p.lo || '—')}</td><th>Thùng · Phiếu kho</th><td>${p.so_thung != null ? fmtNum(p.so_thung) : '—'} · ${esc(p.so_phieu_kho || '—')}${p.kip_sx_id ? ` · ${esc(cat.name('kip', p.kip_sx_id))}` : ''}</td></tr>` : ''}
         <tr><th>Người tạo</th><td>${esc(cat.person(p.nguoi_tao))} · ${fmtDateTime(p.created_at)}</td><th>Xác nhận</th><td>${p.xac_nhan_boi ? `${esc(cat.person(p.xac_nhan_boi))} · ${fmtDateTime(p.xac_nhan_luc)}` : '—'}</td></tr>
         ${p.ghi_chu ? `<tr><th>Ghi chú</th><td colspan="3" class="wrap">${esc(p.ghi_chu)}</td></tr>` : ''}
       </tbody></table></div></section>
@@ -725,7 +766,7 @@ async function detail(main, id) {
           <span>${hm(s.gio_bd)}–${hm(s.gio_kt)} · <b>${s.phut} phút</b></span></div>
         ${s.van_de_cl ? `<div class="t-cap">Chất lượng: ${esc(s.van_de_cl)}</div>` : ''}
         ${s.ghi_chu ? `<div class="t-cap">Ghi chú: ${esc(s.ghi_chu)}</div>` : ''}
-        <div class="t-cap">Người xử lý: ${esc(cat.person(s.nguoi_xu_ly_id) || '—')}${s.ghi_chu_xu_ly ? ` · Xử lý: ${esc(s.ghi_chu_xu_ly)}` : ''}${s.cap_nhat_luc ? ` · Cập nhật ${fmtDateTime(s.cap_nhat_luc)}` : ''}</div>
+        <div class="t-cap">Người xử lý: ${esc(cat.person(s.nguoi_xu_ly_id) || '—')}${(s.nguoi_ho_tro || []).length ? ` · Hỗ trợ: ${esc(s.nguoi_ho_tro.map((x) => cat.person(x)).join(', '))}` : ''}${s.ghi_chu_xu_ly ? ` · Xử lý: ${esc(s.ghi_chu_xu_ly)}` : ''}${s.cap_nhat_luc ? ` · Cập nhật ${fmtDateTime(s.cap_nhat_luc)}` : ''}</div>
         <div class="nn-row no-print" style="padding:0">
           ${can.xuLyLoi() ? `<button class="nn-btn nn-btn-secondary nn-btn-md" data-upd="${s.id}">${icon('edit', 16)}Cập nhật tình trạng</button>` : ''}
           <button class="nn-btn nn-btn-ghost nn-btn-md" data-zalo="${s.id}">${icon('share', 16)}Gửi qua Zalo</button></div>

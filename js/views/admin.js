@@ -12,7 +12,7 @@ const yes = (v) => (v ? `<span class="nn-status nn-tone-success">${icon('pass', 
 
 const TABS = () => [
   { k: 'may', t: 'Máy' }, { k: 'ma_loi', t: 'Mã lỗi' }, { k: 'day_chuyen', t: 'Dây chuyền' }, { k: 'san_pham', t: 'Sản phẩm' },
-  { k: 'loi_sp', t: 'Lỗi sản phẩm' }, { k: 'toc_do', t: 'Tốc độ định mức' }, { k: 'ca', t: 'Ca làm việc' },
+  { k: 'loi_sp', t: 'Lỗi sản phẩm' }, { k: 'toc_do', t: 'Tốc độ định mức' }, { k: 'ca', t: 'Ca làm việc' }, { k: 'kip', t: 'Kíp' },
   { k: 'nhan_su', t: 'Nhân sự' }, { k: 'phan_cong', t: 'Phân công' }, { k: 'bo_phan', t: 'Bộ phận' }, { k: 'khu_vuc', t: 'Khu vực' },
   can.adminTong() && { k: 'nha_may', t: 'Nhà máy' }, { k: 'cai_dat', t: 'Cài đặt' },
 ].filter(Boolean);
@@ -85,6 +85,12 @@ const CFG = {
     fields: [['ten', 'Tên ca', 'text', true], ['bo_phan_id', 'Bộ phận (để trống = tất cả)', 'select', false, () => opt(ofNm('bo_phan'))],
       ['gio_bd', 'Giờ bắt đầu', 'time', true], ['gio_kt', 'Giờ kết thúc', 'time', true], ['nghi_phut', 'Nghỉ giữa ca (phút)', 'number'], ['thu_tu', 'Thứ tự', 'number'], ['hoat_dong', 'Đang dùng', 'bool']],
     def: () => ({ nha_may_id: S.nm, nghi_phut: 30, hoat_dong: true, thu_tu: ofNm('ca').length + 1 }),
+  }),
+  kip: () => ({
+    title: 'Kíp', rows: ofNm('kip'),
+    cols: [['ten', 'Kíp'], [(r) => yes(r.hoat_dong), 'Trạng thái', 'html']],
+    fields: [['ten', 'Tên kíp', 'text', true, null, 'Ví dụ: Kíp 3 — nhóm người làm luân phiên, chọn trên phiếu và báo cáo giao ca'], ['thu_tu', 'Thứ tự', 'number'], ['hoat_dong', 'Đang dùng', 'bool']],
+    def: () => ({ nha_may_id: S.nm, hoat_dong: true, thu_tu: ofNm('kip').length + 1 }),
   }),
   ly_do_ke_hoach: () => ({
     title: 'Lý do dừng có kế hoạch', rows: ofNm('ly_do_ke_hoach'),

@@ -1,7 +1,7 @@
 // Lỗi cần xử lý (Kỹ thuật) + cập nhật tình trạng + Gửi qua Zalo
 import { S, cat, can, fetchOpenFaults, fetchFaults, rpc, errText } from '../api.js';
 import { esc, icon, fmtDate, hm, NHOM_TT, MUC_DO, TINH_TRANG, ttBadge, mucDoBadge, fmtDateTime, today, addDays, VAI_TRO, stopAgeHours, badge } from '../lib.js';
-import { el, $, toast, openSheet, selectField, comboField, textField, rangeField, segmented } from '../ui.js';
+import { el, $, toast, openSheet, selectField, comboField, textField, rangeField, segmented , multiField } from '../ui.js';
 import { refreshFaultBadge } from '../app.js';
 
 export async function render(main, { q }) {
@@ -63,10 +63,13 @@ export async function render(main, { q }) {
 
 export function openFaultUpdate(stop, phieu, onDone) {
   let tt = stop.tinh_trang, ns = stop.nguoi_xu_ly_id || (S.profile.vai_tro === 'ky_thuat' ? S.profile.id : ''), note = stop.ghi_chu_xu_ly || '';
+  let ht = [...(stop.nguoi_ho_tro || [])];
+  const ppl = cat.nhanSu().map((n) => ({ value: n.id, label: n.ho_ten, sub: VAI_TRO[n.vai_tro], k: n.vai_tro === 'ky_thuat' ? 0 : 1 })).sort((a, b) => a.k - b.k || a.label.localeCompare(b.label, 'vi'));
   const body = el(`<div class="nn-stack" style="padding:0"><div><b>${esc(stop.ten_loi || '')}</b><div class="t-cap">${esc(cat.mayLabel(phieu.may_id))} · ${fmtDate(phieu.ngay)} · ${hm(stop.gio_bd)}–${hm(stop.gio_kt)}</div></div></div>`);
   body.append(
     selectField({ label: 'Tình trạng lỗi', value: tt, req: true, options: Object.entries(TINH_TRANG).map(([k, t]) => ({ value: k, label: t.label })), onChange: (v) => { tt = v; } }),
-    comboField({ label: 'Người xử lý', value: ns, options: cat.nhanSu().map((n) => ({ value: n.id, label: n.ho_ten, sub: VAI_TRO[n.vai_tro] })), onChange: (v) => { ns = v; } }),
+    comboField({ label: 'Người xử lý chính', value: ns, options: ppl, onChange: (v) => { ns = v; } }),
+    multiField({ label: 'Người hỗ trợ', value: ht, options: ppl, onChange: (v) => { ht = v; } }),
     textField({ label: 'Ghi chú xử lý', value: note, placeholder: 'Đã làm gì, thay vật tư gì, còn chờ gì…', onInput: (v) => { note = v; } }),
   );
   const ok = el(`<button class="nn-btn nn-btn-primary nn-btn-lg">${icon('pass', 18)}Lưu tình trạng</button>`);
@@ -75,7 +78,7 @@ export function openFaultUpdate(stop, phieu, onDone) {
     if (!tt) return toast('Chọn tình trạng', 'warning');
     ok.disabled = true;
     try {
-      await rpc('cap_nhat_tinh_trang', { p_id: stop.id, p_tinh_trang: tt, p_nguoi_xu_ly: ns || null, p_ghi_chu: note || null });
+      await rpc('cap_nhat_tinh_trang', { p_id: stop.id, p_tinh_trang: tt, p_nguoi_xu_ly: ns || null, p_ghi_chu: note || null, p_ho_tro: ht.filter((x) => x !== ns) });
       toast(`Đã cập nhật: ${TINH_TRANG[tt].label}`); s.close(); onDone?.();
     } catch (e) { ok.disabled = false; toast(errText(e), 'danger'); }
   };
@@ -91,7 +94,7 @@ export async function shareZalo(stop, phieu) {
     `Mức độ: ${(MUC_DO[stop.muc_do] || MUC_DO.dung_ngay).label}`,
     `Dừng: ${hm(stop.gio_bd)}–${hm(stop.gio_kt)} (${stop.phut ?? ''} phút)`,
     `Tình trạng: ${TINH_TRANG[stop.tinh_trang]?.label || ''}`,
-    stop.nguoi_xu_ly_id ? `Người xử lý: ${cat.person(stop.nguoi_xu_ly_id)}` : 'Người xử lý: chưa giao',
+    stop.nguoi_xu_ly_id ? `Người xử lý: ${cat.person(stop.nguoi_xu_ly_id)}${(stop.nguoi_ho_tro || []).length ? ` (hỗ trợ: ${stop.nguoi_ho_tro.map((x) => cat.person(x)).join(', ')})` : ''}` : 'Người xử lý: chưa giao',
     stop.van_de_cl ? `Chất lượng: ${stop.van_de_cl}` : '',
     stop.ghi_chu ? `Ghi chú: ${stop.ghi_chu}` : '',
     stop.ghi_chu_xu_ly ? `Xử lý: ${stop.ghi_chu_xu_ly}` : '',
