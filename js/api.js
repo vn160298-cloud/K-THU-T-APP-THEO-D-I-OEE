@@ -84,9 +84,9 @@ export const can = {
 // ---------- Danh mục ----------
 const TABLES = ['nha_may', 'bo_phan', 'khu_vuc', 'may', 'ma_loi', 'ly_do_ke_hoach', 'san_pham', 'toc_do', 'ca',
   'day_chuyen', 'day_chuyen_may', 'nhan_su', 'cai_dat', 'may_san_pham', 'day_chuyen_san_pham', 'toc_do_day_chuyen',
-  'day_chuyen_tong', 'phan_cong', 'loi_san_pham', 'kip'];
+  'day_chuyen_tong', 'phan_cong', 'loi_san_pham', 'kip', 'dinh_bien', 'quy_cach', 'ds_nhap_nhanh'];
 
-const OPTIONAL = ['day_chuyen_tong', 'phan_cong', 'loi_san_pham', 'kip'];
+const OPTIONAL = ['day_chuyen_tong', 'phan_cong', 'loi_san_pham', 'kip', 'dinh_bien', 'quy_cach', 'ds_nhap_nhanh'];
 
 async function fetchAll(table, build = (q) => q) {
   const out = [];
