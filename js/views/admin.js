@@ -13,12 +13,18 @@ const yes = (v) => (v ? `<span class="nn-status nn-tone-success">${icon('pass', 
 const TABS = () => [
   { k: 'may', t: 'Máy' }, { k: 'ma_loi', t: 'Mã lỗi' }, { k: 'day_chuyen', t: 'Dây chuyền' }, { k: 'san_pham', t: 'Sản phẩm' },
   { k: 'loi_sp', t: 'Lỗi sản phẩm' }, { k: 'toc_do', t: 'Tốc độ định mức' }, { k: 'ca', t: 'Ca làm việc' }, { k: 'kip', t: 'Kíp' },
+  { k: 'dinh_bien', t: 'Định biên' }, { k: 'quy_cach', t: 'Quy cách đóng gói' }, { k: 'ds_nhap_nhanh', t: 'Danh sách nhập nhanh' },
   { k: 'nhan_su', t: 'Nhân sự' }, { k: 'phan_cong', t: 'Phân công' }, { k: 'bo_phan', t: 'Bộ phận' }, { k: 'khu_vuc', t: 'Khu vực' },
   can.adminTong() && { k: 'nha_may', t: 'Nhà máy' }, { k: 'cai_dat', t: 'Cài đặt' },
 ].filter(Boolean);
 
-const opt = (list, f = (x) => x.ten) => list.map((x) => ({ value: x.id, label: f(x) }));
-const ofNm = (t) => (S.cat[t] || []).filter((r) => r.nha_may_id === S.nm);
+// v1.7: Danh mục gộp mọi nhà máy, có bộ lọc Nhà máy ('' = tất cả — chỉ admin tổng)
+let NMF = '';
+const opt = (list, f = (x) => x.ten) => list.map((x) => ({ value: x.id, label: !NMF && x.nha_may_id && S.cat.nha_may.length > 1 ? `${f(x)} · ${nmName(x.nha_may_id)}` : f(x) }));
+const ofNm = (t) => (S.cat[t] || []).filter((r) => !NMF || r.nha_may_id === NMF);
+const dcOf = (nm) => S.cat.day_chuyen.filter((l) => l.hoat_dong && (nm ? l.nha_may_id === nm : !NMF || l.nha_may_id === NMF));
+const donOf = (all, nm) => S.cat.may.filter((m) => (all || m.hoat_dong) && (nm ? m.nha_may_id === nm : !NMF || m.nha_may_id === NMF) && !cat.lineOfMay(m.id));
+const LOAI_DS = { ly_do_tang_ca: 'Lý do tăng ca', loi_ky_luat: 'Lỗi kỷ luật lao động' };
 
 // ---------- v1.4: lọc theo Khu vực / Bộ phận / Dây chuyền (suy ra qua máy) ----------
 // sc = { kv, bp, dc }: dây chuyền thuộc khu vực / bộ phận nếu có ít nhất 1 máy thuộc khu vực / bộ phận đó.
@@ -70,8 +76,8 @@ const CFG = {
     filters: [
       ...scopeDefs(),
       { key: 'may', label: 'Dây chuyền / máy',
-        values: () => [...cat.dayChuyen().map((l) => ({ value: `dc:${l.id}`, label: l.ten })),
-          ...cat.mayDon().map((m) => ({ value: `m:${m.id}`, label: `${m.ma} · ${m.ten}` })),
+        values: () => [...dcOf().map((l) => ({ value: `dc:${l.id}`, label: l.ten })),
+          ...donOf().map((m) => ({ value: `m:${m.id}`, label: `${m.ma} · ${m.ten}` })),
           { value: 'chua', label: '— Chưa khai máy chạy —' }],
         match: (r, v) => (v === 'chua' ? !cat.chayTren(r.id).length
           : cat.sanPhamGan(v.startsWith('dc:') ? { day_chuyen_id: v.slice(3) } : { may_id: v.slice(2) }).includes(r.id)) },
@@ -88,9 +94,33 @@ const CFG = {
   }),
   kip: () => ({
     title: 'Kíp', rows: ofNm('kip'),
-    cols: [['ten', 'Kíp'], [(r) => yes(r.hoat_dong), 'Trạng thái', 'html']],
+    cols: [['ten', 'Kíp'], [(r) => nmName(r.nha_may_id), 'Thuộc nhà máy'], [(r) => yes(r.hoat_dong), 'Trạng thái', 'html']], nmCol: true,
     fields: [['ten', 'Tên kíp', 'text', true, null, 'Ví dụ: Kíp 3 — nhóm người làm luân phiên, chọn trên phiếu và báo cáo giao ca'], ['thu_tu', 'Thứ tự', 'number'], ['hoat_dong', 'Đang dùng', 'bool']],
     def: () => ({ nha_may_id: S.nm, hoat_dong: true, thu_tu: ofNm('kip').length + 1 }),
+  }),
+  dinh_bien: () => ({
+    title: 'Định biên', rows: ofNm('dinh_bien'),
+    cols: [[(r) => cat.name('bo_phan', r.bo_phan_id), 'Bộ phận'], [(r) => cat.name('ca', r.ca_id), 'Ca'], [(r) => cat.name('kip', r.kip_id) || 'Mọi kíp', 'Kíp'],
+      ['so_nguoi', 'Số người'], [(r) => yes(r.hoat_dong), 'Trạng thái', 'html']],
+    fields: [['bo_phan_id', 'Bộ phận', 'select', true, () => opt(ofNm('bo_phan'))], ['ca_id', 'Ca', 'select', true, () => opt(ofNm('ca'))],
+      ['kip_id', 'Kíp (để trống = mọi kíp)', 'select', false, () => opt(ofNm('kip'))], ['so_nguoi', 'Số người định biên', 'number', true, null, 'Báo cáo giao ca tự điền ô Định biên theo bộ phận + ca + kíp'],
+      ['hoat_dong', 'Đang dùng', 'bool']],
+    def: () => ({ nha_may_id: NMF || S.nm, hoat_dong: true, thu_tu: 0 }),
+  }),
+  quy_cach: () => ({
+    title: 'Quy cách đóng gói', rows: ofNm('quy_cach'),
+    cols: [['ten', 'Quy cách'], ['sku_thung', 'SKU / thùng'], ['chai_sku', 'Chai-hũ / SKU'], [(r) => `${+r.sku_thung * +r.chai_sku} chai-hũ / thùng`, 'Quy đổi'], [(r) => yes(r.hoat_dong), 'Trạng thái', 'html']],
+    fields: [['ten', 'Tên quy cách', 'text', true, null, 'VD: L6, HQ6, LỐC 4'], ['sku_thung', 'Số SKU trong 1 thùng', 'number', true], ['chai_sku', 'Số chai / hũ trong 1 SKU', 'number', true],
+      ['thu_tu', 'Thứ tự', 'number'], ['hoat_dong', 'Đang dùng', 'bool']],
+    def: () => ({ nha_may_id: NMF || S.nm, sku_thung: 1, chai_sku: 1, hoat_dong: true, thu_tu: ofNm('quy_cach').length + 1 }),
+  }),
+  ds_nhap_nhanh: () => ({
+    title: 'Danh sách nhập nhanh', rows: ofNm('ds_nhap_nhanh'),
+    filters: [{ key: 'loai', label: 'Loại danh sách', get: (r) => LOAI_DS[r.loai] }],
+    cols: [[(r) => LOAI_DS[r.loai], 'Loại'], ['ten', 'Nội dung'], [(r) => yes(r.hoat_dong), 'Trạng thái', 'html']],
+    fields: [['loai', 'Loại danh sách', 'select', true, () => Object.entries(LOAI_DS).map(([k, v]) => ({ value: k, label: v }))], ['ten', 'Nội dung', 'text', true],
+      ['thu_tu', 'Thứ tự', 'number'], ['hoat_dong', 'Đang dùng', 'bool']],
+    def: () => ({ nha_may_id: NMF || S.nm, loai: 'ly_do_tang_ca', hoat_dong: true, thu_tu: 0 }),
   }),
   ly_do_ke_hoach: () => ({
     title: 'Lý do dừng có kế hoạch', rows: ofNm('ly_do_ke_hoach'),
@@ -128,6 +158,7 @@ const CFG = {
 export async function render(main, { q }) {
   if (!can.admin()) { main.innerHTML = '<div class="empty">Chỉ Admin được vào Danh mục</div>'; return; }
   let tab = TABS().some((t) => t.k === q.tab) ? q.tab : 'may';
+  NMF = can.adminTong() ? (render.nmf ?? '') : S.nm;
   main.innerHTML = `<div class="page-head"><div><div class="t-page">Danh mục</div><div class="muted">Thêm, sửa các danh sách xổ xuống dùng trong app — quản lý riêng theo từng nhà máy</div></div>
     <div class="nn-row" style="padding:0"><button class="nn-btn nn-btn-secondary nn-btn-md" data-export>${icon('download', 18)}Xuất Excel toàn bộ danh mục</button>
     <button class="nn-btn nn-btn-secondary nn-btn-md" data-import>${icon('upload', 18)}Nhập từ Excel</button>
@@ -136,8 +167,8 @@ export async function render(main, { q }) {
     <div class="nn-row" style="padding:0 0 16px;gap:8px" data-tabs></div><div data-body></div>`;
   const nmBox = $('[data-nm]', main);
   if (can.adminTong()) {
-    nmBox.append(selectField({ label: 'Nhà máy đang quản lý', size: 'md', placeholder: '— Chọn nhà máy —', value: S.nm, options: opt(S.cat.nha_may),
-      onChange: (v) => { if (!v) return; S.nm = v; lsSet('nm', v); clearCalc(); drawHeader(); show(); } }));
+    nmBox.append(selectField({ label: 'Lọc theo nhà máy', size: 'md', placeholder: 'Tất cả nhà máy', value: NMF, options: S.cat.nha_may.map((n) => ({ value: n.id, label: n.ten })),
+      onChange: (v) => { NMF = v || ''; render.nmf = NMF; if (v) { S.nm = v; lsSet('nm', v); clearCalc(); drawHeader(); } show(); } }));
   } else {
     nmBox.innerHTML = `<div class="nn-field"><span class="nn-label">Nhà máy</span><span class="chip dept" style="height:32px">${esc(nmName(S.nm))}</span></div>`;
   }
@@ -204,6 +235,7 @@ function crud(box, cfgFn, refresh) {
     <div class="nn-row" style="padding:0"><div class="nn-input-wrap nn-input-md">${icon('search', 18, 'muted')}<input class="nn-input" placeholder="Tìm…" data-kw value="${esc(st.kw)}"></div>
     ${cfg.headerExtra ? cfg.headerExtra() : ''}<button class="nn-btn nn-btn-primary nn-btn-md" data-add>${icon('plus', 18)}Thêm</button></div></div>
     <div class="filters" data-f style="margin-bottom:4px"></div><div data-tb></div></section>`;
+  if (!NMF && !cfg.nmCol && cfg.table !== 'nha_may' && cfg.rows.some((r) => r.nha_may_id)) cfg.cols = [[(r) => nmName(r.nha_may_id), 'Nhà máy'], ...cfg.cols];
   const draw = () => {
     const rows = cfg.rows.filter((r) => passFilter(r, defs, st)
       && (!st.kw || noAccent(JSON.stringify(r) + ' ' + defs.map((d) => (d.get ? d.get(r) : '')).join(' ')).includes(st.kw)));
@@ -246,6 +278,10 @@ function editRow(cfg, row, refresh, table = cfg.table) {
   const isNew = !row.id;
   const val = { ...row };
   const body = el('<div class="form-grid"></div>');
+  // v1.7: admin tổng chọn nhà máy của dòng (danh mục gộp nhiều nhà máy)
+  if (can.adminTong() && 'nha_may_id' in val && !['nha_may', 'nhan_su', 'cai_dat'].includes(table) && !cfg.fields.some(([k]) => k === 'nha_may_id')) {
+    body.append(selectField({ label: 'Nhà máy', value: val.nha_may_id || '', req: true, size: 'md', options: S.cat.nha_may.map((n) => ({ value: n.id, label: n.ten })), onChange: (v) => { val.nha_may_id = v || null; } }));
+  }
   for (const [k, label, type, req, options, hint] of cfg.fields) {
     if (type === 'bool') {
       const f = el(`<label class="nn-field" style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" style="width:22px;height:22px" ${val[k] ? 'checked' : ''}> ${esc(label)}</label>`);
@@ -355,7 +391,7 @@ function copyProducts(refresh) {
 // Phiếu chỉ hiện sản phẩm đã khai cho máy đang chọn; chưa khai gì thì hiện tất cả (để không chặn người ghi).
 function sanPhamMay(spId, refresh) {
   const sp = S.cat.byId.san_pham[spId]; if (!sp) return;
-  const lines = cat.dayChuyen(), singles = cat.mayDon();
+  const lines = dcOf(sp.nha_may_id), singles = donOf(false, sp.nha_may_id);
   const cur = new Set([
     ...S.cat.day_chuyen_san_pham.filter((x) => x.san_pham_id === spId).map((x) => `dc:${x.day_chuyen_id}`),
     ...S.cat.may_san_pham.filter((x) => x.san_pham_id === spId).map((x) => `m:${x.may_id}`),
@@ -392,7 +428,7 @@ function sanPhamMay(spId, refresh) {
 
 // ---------- Mã lỗi theo máy ----------
 function maLoi(box, refresh) {
-  let mayId = maLoi.last && S.cat.byId.may[maLoi.last]?.nha_may_id === S.nm ? maLoi.last : ofNm('may')[0]?.id;
+  let mayId = maLoi.last && ofNm('may').some((m) => m.id === maLoi.last) ? maLoi.last : ofNm('may')[0]?.id;
   const st = (maLoi.st = maLoi.st && maLoi.st.nm === S.nm ? maLoi.st : { nm: S.nm, kw: '', f: {}, sc: {} });
   st.sc ||= {};
   const defs = [
@@ -577,7 +613,7 @@ function tocDo(box) {
   st.sc ||= {};
   const targets = () => (st.kind === 'chuyen'
     ? ofNm('day_chuyen').filter((l) => lineHop(l, st.sc)).map((l) => ({ value: l.id, label: l.ten, sub: cat.members(l.id).map((x) => cat.name('may', x.may_id, 'ma')).join(' → ') }))
-    : cat.mayDon(true).filter((m) => mayHop(m, st.sc)).map((m) => ({ value: m.id, label: `${m.ma} · ${m.ten}`, sub: [cat.name('khu_vuc', m.khu_vuc_id), cat.name('bo_phan', m.bo_phan_id)].filter(Boolean).join(' · ') })));
+    : donOf(true).filter((m) => mayHop(m, st.sc)).map((m) => ({ value: m.id, label: `${m.ma} · ${m.ten}`, sub: [cat.name('khu_vuc', m.khu_vuc_id), cat.name('bo_phan', m.bo_phan_id)].filter(Boolean).join(' · ') })));
   const T = () => (st.kind === 'chuyen' ? { col: 'day_chuyen_id', assign: 'day_chuyen_san_pham', speed: 'toc_do_day_chuyen' } : { col: 'may_id', assign: 'may_san_pham', speed: 'toc_do' });
   let sel = new Set(), spd = {}, kw = '';
   const loadState = (id) => {
@@ -601,7 +637,7 @@ function tocDo(box) {
 
   const draw = () => {
     const prods = ofNm('san_pham').filter((p) => p.hoat_dong).filter((p) => !kw || noAccent(`${p.ma} ${p.ten}`).includes(kw));
-    const inLine = cat.mayDon(true).length !== cat.may(true).length ? cat.may(true).filter((m) => cat.lineOfMay(m.id)).map((m) => m.ma).join(', ') : '';
+    const inLine = '';
     $('[data-tb]', box).innerHTML = !st.id ? `<div class="empty">${st.sc.kv || st.sc.bp ? 'Không có dây chuyền / máy đơn nào khớp bộ lọc' : st.kind === 'chuyen' ? 'Chưa có dây chuyền — thêm ở tab Dây chuyền' : 'Không có máy đơn'}</div>` : `
       <div class="card-head"><div><div class="t-h2">${esc(targets().find((t) => t.value === st.id)?.label || '')}</div>
         <div class="t-cap">${st.kind === 'chuyen' ? 'Tốc độ của dây chuyền được ưu tiên cho mọi máy trong chuyền.' : `Chỉ dành cho máy đơn.${inLine ? ` Máy thuộc dây chuyền (${esc(inLine)}) dùng tốc độ dây chuyền.` : ''}`}
@@ -686,7 +722,7 @@ function dayChuyen(box, refresh) {
   }
   draw();
   box.onclick = (e) => {
-    if (e.target.closest('[data-add]')) return editLine({ nha_may_id: S.nm, ten: '', hoat_dong: true, thu_tu: lines.length + 1 }, []);
+    if (e.target.closest('[data-add]')) return editLine({ nha_may_id: NMF || S.nm, ten: '', hoat_dong: true, thu_tu: lines.length + 1 }, []);
     const ed = e.target.closest('[data-edit]');
     if (ed) { const l = S.cat.byId.day_chuyen[ed.dataset.edit]; editLine(l, cat.members(l.id)); }
   };
@@ -703,7 +739,7 @@ function dayChuyen(box, refresh) {
         <div class="nn-row" style="padding:4px 0 0"><label><input type="radio" name="last" data-last="${i}" ${m.la_may_cuoi ? 'checked' : ''}> Máy cuối chuyền (đếm sản lượng đạt)</label></div></div>`).join('') || '<div class="t-cap">Chưa có máy</div>';
     };
     drawM();
-    const free = () => cat.may(true).filter((m) => !mem.some((x) => x.may_id === m.id));
+    const free = () => S.cat.may.filter((m) => m.nha_may_id === v.nha_may_id && !mem.some((x) => x.may_id === m.id));
     const freeOpts = () => free().map((m) => { const other = cat.linesOfMay(m.id).filter((l) => l.id !== v.id);
       return { value: m.id, label: `${m.ma} · ${m.ten}`, sub: other.length ? `Dùng chung — đang thuộc ${other.map((l) => l.ten).join(', ')}` : 'Máy đơn', group: other.length ? 'Máy đã thuộc dây chuyền khác (dùng chung)' : 'Máy đơn' }; })
       .sort((a, b) => a.group.localeCompare(b.group, 'vi'));
@@ -745,14 +781,15 @@ function dayChuyen(box, refresh) {
 // Phiếu dùng bảng này để tự điền tổ trưởng và lọc danh sách người vận hành theo ca + máy.
 function phanCong(box) {
   const st = (phanCong.st = phanCong.st && phanCong.st.nm === S.nm ? phanCong.st : { nm: S.nm, ca: '', t: '' });
+  const caNm = () => S.cat.byId.ca[st.ca]?.nha_may_id || NMF || S.nm;   // v1.7: nhà máy theo ca đang chọn
   const cas = ofNm('ca').filter((c) => c.hoat_dong);
   const targets = () => [
-    ...cat.dayChuyen().map((l) => ({ value: `dc:${l.id}`, label: l.ten, sub: cat.members(l.id).map((x) => cat.name('may', x.may_id, 'ma')).join(' → '), group: 'Dây chuyền' })),
-    ...cat.mayDon().map((m) => ({ value: `m:${m.id}`, label: `${m.ma} · ${m.ten}`, group: 'Máy đơn' })),
+    ...dcOf(caNm()).map((l) => ({ value: `dc:${l.id}`, label: l.ten, sub: cat.members(l.id).map((x) => cat.name('may', x.may_id, 'ma')).join(' → '), group: 'Dây chuyền' })),
+    ...donOf(false, caNm()).map((m) => ({ value: `m:${m.id}`, label: `${m.ma} · ${m.ten}`, group: 'Máy đơn' })),
   ];
   const tOf = (v) => (v.startsWith('dc:') ? { day_chuyen_id: v.slice(3), may_id: null } : { may_id: v.slice(2), day_chuyen_id: null });
   const tLabel = (x) => (x.day_chuyen_id ? cat.name('day_chuyen', x.day_chuyen_id) : cat.mayLabel(x.may_id));
-  const rowsOf = () => (S.cat.phan_cong || []).filter((x) => x.nha_may_id === S.nm);
+  const rowsOf = () => ofNm('phan_cong');
   if (!cas.some((c) => c.id === st.ca)) st.ca = cas[0]?.id || '';
   if (!targets().some((t) => t.value === st.t)) st.t = targets()[0]?.value || '';
 
@@ -761,8 +798,8 @@ function phanCong(box) {
     <div class="filters" data-f></div><div data-cur></div></section>
     <section class="card"><div class="card-head"><div class="t-h2" data-sumt></div></div><div data-sum></div></section>`;
   if (!S.cat.phan_cong) { $('[data-cur]', box).innerHTML = '<div class="empty">Chưa cập nhật database — chạy lại file supabase/01_schema.sql bản mới</div>'; return; }
-  const fCa = selectField({ label: 'Ca', size: 'md', value: st.ca, options: cas.map((c) => ({ value: c.id, label: `${c.ten} (${hm(c.gio_bd)}–${hm(c.gio_kt)})${c.bo_phan_id ? ` · ${cat.name('bo_phan', c.bo_phan_id)}` : ''}` })),
-    onChange: (v) => { st.ca = v; drawCur(); } });
+  const fCa = selectField({ label: 'Ca', size: 'md', value: st.ca, options: cas.map((c) => ({ value: c.id, label: `${c.ten} (${hm(c.gio_bd)}–${hm(c.gio_kt)})${c.bo_phan_id ? ` · ${cat.name('bo_phan', c.bo_phan_id)}` : ''}${NMF ? '' : ` · ${nmName(c.nha_may_id)}`}` })),
+    onChange: (v) => { st.ca = v; fT.setOptions(targets(), st.t = targets()[0]?.value || ''); drawCur(); } });
   const fT = comboField({ label: 'Dây chuyền / Máy đơn', size: 'md', value: st.t, allowClear: false, options: targets(), onChange: (v) => { st.t = v; drawCur(); } });
   $('[data-f]', box).append(fCa, fT);
 
@@ -776,10 +813,10 @@ function phanCong(box) {
         <button class="nn-btn nn-btn-ghost nn-btn-sm" data-rmpc="${x.id}" aria-label="Bỏ phân công">${icon('trash', 14)}</button></div>`).join('') || '<span class="t-cap">Chưa phân công</span>'}</div></div>`);
     const have = new Set(cur.map((x) => x.nhan_su_id));
     wrap.append(comboField({ label: `Thêm ${title.toLowerCase()}`, size: 'md', placeholder: '— Chọn người —',
-      options: cat.nhanSu(roles).filter((n) => !have.has(n.id)).map((n) => ({ value: n.id, label: n.ho_ten, sub: `${n.ma_nv} · ${VAI_TRO[n.vai_tro]}${n.bo_phan_id ? ` · ${cat.name('bo_phan', n.bo_phan_id)}` : ''}` })),
+      options: S.cat.nhan_su.filter((n) => n.hoat_dong && roles.includes(n.vai_tro) && (!n.nha_may_id || n.nha_may_id === caNm()) && !have.has(n.id)).map((n) => ({ value: n.id, label: n.ho_ten, sub: `${n.ma_nv} · ${VAI_TRO[n.vai_tro]}${n.bo_phan_id ? ` · ${cat.name('bo_phan', n.bo_phan_id)}` : ''}` })),
       onChange: async (v) => {
         if (!v) return;
-        const { error } = await sb.from('phan_cong').insert({ nha_may_id: S.nm, ca_id: st.ca, ...tOf(st.t), nhan_su_id: v, vai_tro: vt, thu_tu: cur.length + 1 });
+        const { error } = await sb.from('phan_cong').insert({ nha_may_id: caNm(), ca_id: st.ca, ...tOf(st.t), nhan_su_id: v, vai_tro: vt, thu_tu: cur.length + 1 });
         if (error) return toast(errText(error), 'danger');
         await reload(); drawCur(); drawSum();
       } }));
@@ -802,7 +839,7 @@ function phanCong(box) {
       groups.set(key, g);
     }
     const arr = [...groups.values()].sort((a, b) => cat.name('ca', a.ca).localeCompare(cat.name('ca', b.ca), 'vi') || tLabel(a.x).localeCompare(tLabel(b.x), 'vi', { numeric: true }));
-    $('[data-sumt]', box).textContent = `Bảng phân công ${nmName(S.nm)} (${arr.length})`;
+    $('[data-sumt]', box).textContent = `Bảng phân công ${NMF ? nmName(NMF) : '— tất cả nhà máy'} (${arr.length})`;
     $('[data-sum]', box).innerHTML = `<div class="nn-table-wrap"><table class="nn-table"><thead><tr><th>Ca</th><th>Dây chuyền / Máy</th><th>Tổ trưởng</th><th>Người vận hành</th><th></th></tr></thead><tbody>
       ${arr.map((g) => `<tr><td>${esc(cat.name('ca', g.ca))}</td><td class="wrap">${esc(tLabel(g.x))}</td><td class="wrap">${esc(g.tt.join(', ') || '—')}</td><td class="wrap">${esc(g.vh.join(', ') || '—')}</td>
         <td><button class="nn-btn nn-btn-ghost nn-btn-sm" data-pick="${g.ca}|${g.t}">${icon('edit', 14)}Sửa</button></td></tr>`).join('') || '<tr><td colspan="5" class="muted">Chưa có phân công nào</td></tr>'}</tbody></table></div>`;
