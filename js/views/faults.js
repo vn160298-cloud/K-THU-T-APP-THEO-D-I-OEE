@@ -5,7 +5,7 @@ import { el, $, toast, openSheet, selectField, comboField, textField, rangeField
 import { refreshFaultBadge } from '../app.js';
 
 export async function render(main, { q }) {
-  const st = { mode: q.tt || 'open', from: addDays(today(), -29), to: today(), may: '', search: '' };
+  const st = { mode: q.tt || 'open', from: addDays(today(), -6), to: today(), may: '', search: '' };
   main.innerHTML = `<div class="page-head"><div><div class="t-page">Lỗi cần xử lý</div>
     <div class="muted">Trạng thái xử lý lỗi của từng máy · quá ${cat.caiDat().gio_qua_han} giờ chưa xử lý được đánh dấu</div></div></div>
     <div class="filters" data-f></div><div data-list><div class="empty">Đang tải…</div></div>`;

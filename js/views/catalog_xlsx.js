@@ -87,13 +87,13 @@ export function exportCatalog() {
   add('Khu vực', S.cat.khu_vuc.filter(inScope).map((x) => ({ 'Nhà máy': nmName(x.nha_may_id), 'Khu vực': x.ten, 'Đang dùng': yn(x.hoat_dong), 'Thứ tự': x.thu_tu })), SHEETS.khu_vuc.cols);
   add('Máy', S.cat.may.filter(inScope).map((m) => ({ 'Nhà máy': nmName(m.nha_may_id), 'Mã máy': m.ma, 'Tên máy': m.ten, 'Khu vực': cat.name('khu_vuc', m.khu_vuc_id), 'Bộ phận': cat.name('bo_phan', m.bo_phan_id),
     'Dây chuyền (chỉ xem)': cat.lineNames(m.id) || MAY_DON, 'OEE mục tiêu (%)': m.oee_muc_tieu, 'Ngưỡng xanh (%)': m.nguong_xanh, 'Ngưỡng vàng (%)': m.nguong_vang, 'Đang dùng': yn(m.hoat_dong), 'Thứ tự': m.thu_tu })), SHEETS.may.cols);
+  add('Lỗi sản phẩm', (S.cat.loi_san_pham || []).filter((l) => inScope(S.cat.byId.san_pham[l.san_pham_id] || {})).map((l) => { const sp = S.cat.byId.san_pham[l.san_pham_id];
+    return { 'Nhà máy': nmName(sp.nha_may_id), 'Mã sản phẩm': sp.ma, 'Sản phẩm (chỉ xem)': sp.ten, 'Mã lỗi': l.ma || '', 'Tên lỗi': l.ten, 'Đang dùng': yn(l.hoat_dong), 'Thứ tự': l.thu_tu }; }), SHEETS.loi_san_pham.cols);
   add('Mã lỗi', S.cat.ma_loi.filter(mayIn).map((l) => ({ 'Nhà máy': nmName(mayOf(l.may_id)?.nha_may_id), 'Mã máy': mayOf(l.may_id)?.ma, 'Tên máy (chỉ xem)': mayOf(l.may_id)?.ten, 'Mã lỗi': l.ma, 'Tên lỗi': l.ten,
     'Nhóm 6 tổn thất': `${l.nhom_ton_that}. ${NHOM_TT[l.nhom_ton_that]}`, 'Loại lỗi': l.loai_loi,
     'Mức độ xử lý': (MUC_DO[l.muc_do] || MUC_DO.dung_ngay).label, 'Đang dùng': yn(l.hoat_dong), 'Thứ tự': l.thu_tu })), SHEETS.ma_loi.cols);
-  add('Dây chuyền tổng', (S.cat.day_chuyen_tong || []).filter(inScope).map((t) => ({ 'Nhà máy': nmName(t.nha_may_id), 'Dây chuyền tổng': t.ten,
-    'Các công đoạn (chỉ xem)': S.cat.day_chuyen.filter((l) => l.tong_id === t.id).map((l) => l.ten).join(' + '), 'Đang dùng': yn(t.hoat_dong), 'Thứ tự': t.thu_tu })), SHEETS.day_chuyen_tong.cols);
   add('Dây chuyền', S.cat.day_chuyen.filter(inScope).map((l) => ({ 'Nhà máy': nmName(l.nha_may_id), 'Dây chuyền': l.ten, 'Số máy (chỉ xem)': cat.members(l.id).length,
-    'Thuộc dây chuyền tổng': (S.cat.day_chuyen_tong || []).find((t) => t.id === l.tong_id)?.ten || '', 'Công đoạn cuối': l.tong_id ? yn(l.la_cd_cuoi) : '', 'Đang dùng': yn(l.hoat_dong), 'Thứ tự': l.thu_tu })), SHEETS.day_chuyen.cols);
+    'Đang dùng': yn(l.hoat_dong), 'Thứ tự': l.thu_tu })), SHEETS.day_chuyen.cols);
   add('Dây chuyền - Máy', S.cat.day_chuyen_may.filter(lineIn).sort((a, b) => a.thu_tu - b.thu_tu).map((x) => { const l = S.cat.byId.day_chuyen[x.day_chuyen_id]; return {
     'Nhà máy': nmName(l.nha_may_id), 'Dây chuyền': l.ten, 'Thứ tự': x.thu_tu, 'Mã máy': mayOf(x.may_id)?.ma, 'Tên máy (chỉ xem)': mayOf(x.may_id)?.ten, 'Máy cuối chuyền': yn(x.la_may_cuoi) }; }), SHEETS.day_chuyen_may.cols);
   add('Sản phẩm', S.cat.san_pham.filter(inScope).map((p) => ({ 'Nhà máy': nmName(p.nha_may_id), 'Mã': p.ma, 'Sản phẩm': p.ten, 'ĐVT': p.dvt, 'Đang dùng': yn(p.hoat_dong), 'Thứ tự': p.thu_tu })), SHEETS.san_pham.cols);
@@ -146,9 +146,6 @@ const SHEETS = {
   ly_do_ke_hoach: { sheet: 'Lý do dừng KH', table: 'ly_do_ke_hoach', phase: 2, cols: ['Nhà máy', 'Lý do', 'Đang dùng', 'Thứ tự'],
     build: (r, X) => { const nm = X.nm(r); const ten = need(r['Lý do'], 'lý do');
       return { rec: { nha_may_id: nm, ten, hoat_dong: boolOf(r['Đang dùng']), thu_tu: numOf(r['Thứ tự'], 'Thứ tự', { def: 0 }) }, old: X.byName('ly_do_ke_hoach', nm, ten), pkey: `${nm}|${k(ten)}` }; } },
-  day_chuyen_tong: { sheet: 'Dây chuyền tổng', table: 'day_chuyen_tong', phase: 2, cols: ['Nhà máy', 'Dây chuyền tổng', 'Các công đoạn (chỉ xem)', 'Đang dùng', 'Thứ tự'],
-    build: (r, X) => { const nm = X.nm(r); const ten = need(r['Dây chuyền tổng'], 'tên dây chuyền tổng');
-      return { rec: { nha_may_id: nm, ten, hoat_dong: boolOf(r['Đang dùng']), thu_tu: numOf(r['Thứ tự'], 'Thứ tự', { def: 0 }) }, old: X.byName('day_chuyen_tong', nm, ten), pkey: `${nm}|${k(ten)}` }; } },
   cai_dat: { sheet: 'Cài đặt', table: 'cai_dat', phase: 2, cols: ['Nhà máy', 'Ngưỡng dừng ngắn (phút)', 'Cảnh báo quá hạn (giờ)'], pk: 'nha_may_id',
     build: (r, X) => { const nm = X.nm(r);
       return { rec: { nha_may_id: nm, nguong_dung_ngan: numOf(r['Ngưỡng dừng ngắn (phút)'], 'Ngưỡng dừng ngắn', { def: 5 }), gio_qua_han: numOf(r['Cảnh báo quá hạn (giờ)'], 'Cảnh báo quá hạn', { def: 4 }) },
@@ -178,10 +175,10 @@ const SHEETS = {
       if (old?.id === S.profile.id && (vt !== 'admin' || !boolOf(r['Đang hoạt động']))) throw new Error('Không tự đổi vai trò / ngưng tài khoản admin đang đăng nhập');
       return { rec: { ma_nv: ma, ho_ten: need(r['Họ tên'], 'họ tên'), vai_tro: vt, nha_may_id: nm, bo_phan_id: bp?.id || null, hoat_dong: boolOf(r['Đang hoạt động']) }, old, pkey: k(ma) };
     } },
-  day_chuyen: { sheet: 'Dây chuyền', table: 'day_chuyen', phase: 3, cols: ['Nhà máy', 'Dây chuyền', 'Số máy (chỉ xem)', 'Thuộc dây chuyền tổng', 'Công đoạn cuối', 'Đang dùng', 'Thứ tự'],
+  // v1.4: bỏ dây chuyền tổng — file cũ còn cột "Thuộc dây chuyền tổng" / sheet "Dây chuyền tổng" thì app bỏ qua
+  day_chuyen: { sheet: 'Dây chuyền', table: 'day_chuyen', phase: 3, cols: ['Nhà máy', 'Dây chuyền', 'Số máy (chỉ xem)', 'Đang dùng', 'Thứ tự'],
     build: (r, X) => { const nm = X.nm(r); const ten = need(r['Dây chuyền'], 'tên dây chuyền');
-      const tong = str(r['Thuộc dây chuyền tổng']) ? X.byName('day_chuyen_tong', nm, r['Thuộc dây chuyền tổng'], 'dây chuyền tổng') : null;
-      return { rec: { nha_may_id: nm, ten, tong_id: tong?.id || null, la_cd_cuoi: tong ? boolOf(r['Công đoạn cuối'], false) : false, hoat_dong: boolOf(r['Đang dùng']), thu_tu: numOf(r['Thứ tự'], 'Thứ tự', { def: 0 }) },
+      return { rec: { nha_may_id: nm, ten, hoat_dong: boolOf(r['Đang dùng']), thu_tu: numOf(r['Thứ tự'], 'Thứ tự', { def: 0 }) },
         old: X.findLine(nm, ten, true), pkey: `${nm}|${k(ten)}` }; } },
   ma_loi: { sheet: 'Mã lỗi', table: 'ma_loi', phase: 4, cols: ['Nhà máy', 'Mã máy', 'Tên máy (chỉ xem)', 'Mã lỗi', 'Tên lỗi', 'Nhóm 6 tổn thất', 'Loại lỗi', 'Mức độ xử lý', 'Đang dùng', 'Thứ tự'],
     build: (r, X) => { const nm = X.nm(r); const m = X.findMay(nm, need(r['Mã máy'], 'mã máy')); const ma = need(r['Mã lỗi'], 'mã lỗi');
@@ -199,6 +196,12 @@ const SHEETS = {
       const old = cand.length > 1 ? cand.find((l) => k(l.ten) === k(ten)) || null : cand[0] || null;
       return { rec: { may_id: m.id, ma, ten, nhom_ton_that: g, loai_loi: loai, muc_do: md, hoat_dong: boolOf(r['Đang dùng']), thu_tu: numOf(r['Thứ tự'], 'Thứ tự', { def: 0 }) },
         old, pkey: `${k(r['Mã máy'])}|${k(ma)}|${k(ten)}` }; } },
+  // v1.4: lỗi sản phẩm theo sản phẩm — khớp theo sản phẩm + tên lỗi
+  loi_san_pham: { sheet: 'Lỗi sản phẩm', table: 'loi_san_pham', phase: 3, cols: ['Nhà máy', 'Mã sản phẩm', 'Sản phẩm (chỉ xem)', 'Mã lỗi', 'Tên lỗi', 'Đang dùng', 'Thứ tự'],
+    build: (r, X) => { const nm = X.nm(r); const sp = X.findSp(nm, need(r['Mã sản phẩm'], 'mã sản phẩm')); const ten = need(r['Tên lỗi'], 'tên lỗi');
+      const old = sp.id === PENDING ? null : (S.cat.loi_san_pham || []).find((l) => l.san_pham_id === sp.id && k(l.ten) === k(ten)) || null;
+      return { rec: { san_pham_id: sp.id, ma: str(r['Mã lỗi']) || null, ten, hoat_dong: boolOf(r['Đang dùng']), thu_tu: numOf(r['Thứ tự'], 'Thứ tự', { def: 0 }) },
+        old, pkey: `${k(r['Mã sản phẩm'])}|${k(ten)}` }; } },
   day_chuyen_may: { sheet: 'Dây chuyền - Máy', table: 'day_chuyen_may', phase: 4, cols: ['Nhà máy', 'Dây chuyền', 'Thứ tự', 'Mã máy', 'Tên máy (chỉ xem)', 'Máy cuối chuyền'],
     build: (r, X) => { const nm = X.nm(r); const l = X.findLine(nm, need(r['Dây chuyền'], 'dây chuyền')); const m = X.findMay(nm, need(r['Mã máy'], 'mã máy'));
       return { rec: { day_chuyen_id: l.id, may_id: m.id, thu_tu: numOf(r['Thứ tự'], 'Thứ tự', { def: 0 }), la_may_cuoi: boolOf(r['Máy cuối chuyền'], false) },

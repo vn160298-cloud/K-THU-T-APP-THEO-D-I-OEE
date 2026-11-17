@@ -1,5 +1,5 @@
 // Danh sách phiếu theo khoảng ngày (phiếu dây chuyền gộp thành 1 dòng)
-import { S, cat, errText } from '../api.js';
+import { S, cat, errText, MOC_LUU_TRU } from '../api.js';
 import { loadCalc, groupEntries, entryLabel } from '../data.js';
 import { esc, today, addDays, fmtDate, fmtNum, fmtPct, phieuBadge, TRANG_THAI_PHIEU } from '../lib.js';
 import { $, rangeField, selectField, comboField } from '../ui.js';
@@ -24,7 +24,8 @@ export async function render(main) {
   async function load() {
     if (!S.online) { $('[data-body]', main).innerHTML = offlineNote(); return; }
     $('[data-body]', main).innerHTML = '<div class="empty">Đang tải…</div>';
-    try { data = await loadCalc(st.from, st.to, { force: true }); draw(); } catch (e) { $('[data-body]', main).innerHTML = `<div class="empty">${esc(errText(e))}</div>`; }
+    // v1.5: mặc định 7 ngày gần nhất + mọi phiếu chưa xác nhận (kể cả cũ hơn); dữ liệu cũ hơn chỉ tải khi chọn khoảng ngày
+    try { data = await loadCalc(st.from, st.to, { force: true, moThem: true }); draw(); } catch (e) { $('[data-body]', main).innerHTML = `<div class="empty">${esc(errText(e))}</div>`; }
   }
   function draw() {
     const match = (e) => {
@@ -34,7 +35,7 @@ export async function render(main) {
     };
     const entries = groupEntries(data).filter(match)
       .sort((a, b) => b.rep.p.ngay.localeCompare(a.rep.p.ngay) || entryLabel(a).localeCompare(entryLabel(b), 'vi', { numeric: true }));
-    $('[data-sub]', main).textContent = `${entries.length} phiếu · ${fmtDate(st.from)} – ${fmtDate(st.to)}`;
+    $('[data-sub]', main).textContent = `${entries.length} phiếu · ${fmtDate(st.from)} – ${fmtDate(st.to)} · kèm phiếu chưa xác nhận cũ hơn${st.from < MOC_LUU_TRU() ? " · có đọc kho lưu trữ" : ""}`;
     $('[data-body]', main).innerHTML = entries.length ? `<div class="nn-table-wrap"><table class="nn-table"><thead><tr>
       <th>Ngày</th><th>Dây chuyền / Máy</th><th>Ca</th><th>Sản phẩm</th><th>Vận hành</th><th class="num">Tổng SL</th><th class="num">Lần dừng</th><th class="num">Dừng (phút)</th><th class="num">OEE</th><th>Trạng thái</th></tr></thead><tbody>
       ${entries.map((e) => { const { p, c } = e.rep; const lan = e.children.reduce((s, x) => s + x.c.stopCount, 0); return `<tr class="clickable" data-p="${e.key}"><td>${fmtDate(p.ngay)}</td>

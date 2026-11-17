@@ -12,7 +12,7 @@ const r1 = (x) => (x == null || !isFinite(x) ? null : Math.round(x * 1000) / 10)
 
 export async function render(main, { q }) {
   const canAll = can.adminTong();
-  const st = { from: q.from || addDays(today(), -29), to: q.to || today(), nm: canAll ? '' : S.nm, kv: '', bp: '', may: '', sp: '' };
+  const st = { from: q.from || addDays(today(), -6), to: q.to || today(), nm: canAll ? '' : S.nm, kv: '', bp: '', may: '', sp: '' };
   const multi = () => !st.nm;                       // đang xem nhiều nhà máy
   const inNm = (r) => !st.nm || r.nha_may_id === st.nm;
   const suffix = (r) => (multi() ? ` · ${S.cat.byId.nha_may[r.nha_may_id]?.ten || ''}` : '');
@@ -103,7 +103,8 @@ export async function render(main, { q }) {
       return { l, last, a: aggregate(mine.map((r) => r.c)), n: mine.length };
     }).filter((x) => x.n);
     // Dây chuyền tổng (ghép công đoạn): OEE = OEE công đoạn cuối; hiện OEE từng công đoạn để thấy công đoạn nào kéo xuống
-    const tongRows = (S.cat.day_chuyen_tong || []).filter((t) => t.hoat_dong && inNm(t)).map((t) => {
+    const tongRows = []; // v1.4: bỏ dây chuyền tổng — không hiện bảng này nữa
+    void (S.cat.day_chuyen_tong || []).filter((t) => t.hoat_dong && inNm(t)).map((t) => {
       const cds = S.cat.day_chuyen.filter((l) => l.tong_id === t.id && l.hoat_dong);
       const fin = cds.find((l) => l.la_cd_cuoi) || cds[cds.length - 1];
       const parts = cds.map((l) => ({ l, r: lineRows.find((x) => x.l.id === l.id) }));
