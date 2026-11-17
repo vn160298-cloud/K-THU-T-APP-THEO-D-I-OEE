@@ -76,15 +76,17 @@ export const can = {
   moKhoa: () => ['quan_ly', 'admin'].includes(S.profile?.vai_tro),
   /** v1.5: Vận hành / Tổ trưởng có bộ phận -> chỉ thấy máy, dây chuyền, phiếu của bộ phận mình */
   boPhanRieng: () => ['van_hanh', 'to_truong'].includes(S.profile?.vai_tro) && !!S.profile?.bo_phan_id,
+  /** v1.6: lập / nhận báo cáo giao ca */
+  giaoCa: () => ['to_truong', 'quan_ly', 'admin'].includes(S.profile?.vai_tro),
   nhatKy: () => ['to_truong', 'quan_ly', 'admin'].includes(S.profile?.vai_tro),
 };
 
 // ---------- Danh mục ----------
 const TABLES = ['nha_may', 'bo_phan', 'khu_vuc', 'may', 'ma_loi', 'ly_do_ke_hoach', 'san_pham', 'toc_do', 'ca',
   'day_chuyen', 'day_chuyen_may', 'nhan_su', 'cai_dat', 'may_san_pham', 'day_chuyen_san_pham', 'toc_do_day_chuyen',
-  'day_chuyen_tong', 'phan_cong', 'loi_san_pham'];
+  'day_chuyen_tong', 'phan_cong', 'loi_san_pham', 'kip'];
 
-const OPTIONAL = ['day_chuyen_tong', 'phan_cong', 'loi_san_pham'];
+const OPTIONAL = ['day_chuyen_tong', 'phan_cong', 'loi_san_pham', 'kip'];
 
 async function fetchAll(table, build = (q) => q) {
   const out = [];
@@ -131,6 +133,10 @@ export const cat = {
   boPhan: () => S.cat.bo_phan.filter((b) => b.nha_may_id === S.nm && b.hoat_dong && (!can.boPhanRieng() || b.id === S.profile.bo_phan_id)),
   ca: (boPhanId) => S.cat.ca.filter((c) => c.nha_may_id === S.nm && c.hoat_dong && (!boPhanId || !c.bo_phan_id || c.bo_phan_id === boPhanId)),
   maLoi: (mayId) => S.cat.ma_loi.filter((l) => l.may_id === mayId && l.hoat_dong),
+  /** v1.6: kíp của nhà máy đang chọn */
+  kip: (nm = S.nm) => sortCat((S.cat.kip || []).filter((k) => k.nha_may_id === nm && k.hoat_dong)),
+  /** v1.6: bộ phận Đóng gói (tên chứa "đóng gói") -> phiếu có thêm ngày SX, lô, thùng, kíp SX, số phiếu kho */
+  laDongGoi: (bpId) => /đóng gói|dong goi/i.test(S.cat.byId.bo_phan[bpId]?.ten || ''),
   /** v1.4: danh mục lỗi sản phẩm của 1 sản phẩm */
   loiSp: (spId, all = false) => sortCat((S.cat.loi_san_pham || []).filter((l) => l.san_pham_id === spId && (all || l.hoat_dong))),
   lyDo: () => S.cat.ly_do_ke_hoach.filter((l) => l.nha_may_id === S.nm && l.hoat_dong),

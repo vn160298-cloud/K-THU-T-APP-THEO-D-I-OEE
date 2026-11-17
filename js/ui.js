@@ -130,6 +130,30 @@ export function timeField({ label, value = '', req, msg, span, min = '', max = '
   return f;
 }
 
+/**
+ * v1.6: Chọn nhiều mục (ví dụ người hỗ trợ): các chip đã chọn (bấm × để bỏ) + ô chọn để thêm.
+ * value: mảng id; options: [{ value, label, sub }]; onChange(mảng id mới)
+ */
+export function multiField({ label, value = [], options = [], placeholder = '— Thêm người —', span, onChange, size = 'lg' }) {
+  let cur = [...(value || [])];
+  const f = el(`<div class="nn-field ${span ? 'span-2' : ''}"><span class="nn-label">${esc(label)}</span>
+    <div class="nn-row" style="padding:0 0 6px;gap:6px;flex-wrap:wrap" data-chips></div></div>`);
+  const chips = $('[data-chips]', f);
+  const pick = comboField({ label: '', size, placeholder, options: [], onChange: (v) => { if (v && !cur.includes(v)) { cur.push(v); paint(); onChange?.(cur); } } });
+  $('.nn-label', pick)?.remove();
+  f.append(pick);
+  function paint() {
+    const name = (id) => options.find((o) => o.value === id)?.label || '(không rõ)';
+    chips.innerHTML = cur.map((id) => `<span class="chip" style="gap:4px">${esc(name(id))}<button type="button" class="nn-btn nn-btn-ghost nn-btn-sm" data-rm="${esc(id)}" aria-label="Bỏ ${esc(name(id))}" style="min-height:0;padding:0 4px">${icon('x', 12)}</button></span>`).join('')
+      || '<span class="t-cap">Chưa chọn</span>';
+    pick.setOptions(options.filter((o) => !cur.includes(o.value)), '');
+  }
+  chips.onclick = (e) => { const b = e.target.closest('[data-rm]'); if (!b) return; cur = cur.filter((x) => x !== b.dataset.rm); paint(); onChange?.(cur); };
+  paint();
+  f.value = () => cur;
+  return f;
+}
+
 /** Gắn định dạng số kiểu Việt Nam cho 1 ô input (dùng cả cho ô tự dựng trong bảng) */
 export function bindNum(inp, kind = 'int') {
   if (kind === 'int') {
