@@ -76,6 +76,60 @@ export function inputField({ label, value = '', type = 'text', unit, inputmode, 
   return f;
 }
 
+/**
+ * v1.4: Ô chọn giờ kiểu 24 tiếng (không SA/CH): 2 danh sách Giờ : Phút.
+ * min / max ("HH:MM") giới hạn khung giờ được chọn — chỉ hiện giờ trong khung, kể cả ca qua đêm (22:00 → 06:00).
+ * f.setRange(min, max) đổi khung giờ; f.value() lấy giá trị hiện tại.
+ */
+export function timeField({ label, value = '', req, msg, span, min = '', max = '', onInput, size = 'lg', placeholder = '--' }) {
+  const f = wrapField(label, `<div class="nn-row" style="padding:0;gap:4px;flex-wrap:nowrap;align-items:center">
+    <div class="nn-input-wrap nn-input-${size}" style="flex:1;min-width:0"><select id="__ID__" class="nn-input" data-hh aria-label="Giờ"></select></div>
+    <b aria-hidden="true">:</b>
+    <div class="nn-input-wrap nn-input-${size}" style="flex:1;min-width:0"><select class="nn-input" data-mm aria-label="Phút"></select></div></div>`, { req, msg, span });
+  const sh = $('[data-hh]', f), sm = $('[data-mm]', f);
+  const p2 = (n) => String(n).padStart(2, '0');
+  const parse = (t) => { const m = /^(\d{1,2}):(\d{2})/.exec(String(t || '')); return m ? [+m[1], +m[2]] : null; };
+  let cur = parse(value), lo = parse(min), hi = parse(max);
+  const hours = () => {
+    if (!lo || !hi) return [...Array(24).keys()];
+    const out = []; let h = lo[0];
+    for (let i = 0; i < 24; i++) { out.push(h); if (h === hi[0] && !(i === 0 && lo[0] === hi[0] && lo[1] > hi[1])) break; h = (h + 1) % 24; }
+    return out;
+  };
+  const minutes = (h) => {
+    const all = [...Array(60).keys()];
+    if (!lo || !hi || h == null) return all;
+    if (lo[0] === hi[0] && lo[1] > hi[1]) return all;                 // ca gần 24 giờ, cùng giờ đầu/cuối
+    return all.filter((m) => !(h === lo[0] && m < lo[1]) && !(h === hi[0] && m > hi[1]));
+  };
+  const paint = () => {
+    const hs = hours();
+    const out = cur && !hs.includes(cur[0]);                           // giá trị cũ nằm ngoài khung: vẫn hiện để không mất dữ liệu
+    sh.innerHTML = `<option value="">${placeholder}</option>` + (out ? `<option value="${cur[0]}">${p2(cur[0])} (ngoài khung)</option>` : '')
+      + hs.map((h) => `<option value="${h}">${p2(h)}</option>`).join('');
+    sh.value = cur ? String(cur[0]) : '';
+    const ms = cur ? minutes(cur[0]) : [...Array(60).keys()];
+    const outM = cur && !ms.includes(cur[1]);
+    sm.innerHTML = `<option value="">${placeholder}</option>` + (outM ? `<option value="${cur[1]}">${p2(cur[1])}</option>` : '')
+      + ms.map((m) => `<option value="${m}">${p2(m)}</option>`).join('');
+    sm.value = cur ? String(cur[1]) : '';
+    sm.disabled = !cur;
+  };
+  const emit = () => onInput?.(cur ? `${p2(cur[0])}:${p2(cur[1])}` : '', f);
+  sh.onchange = () => {
+    if (sh.value === '') { cur = null; paint(); return emit(); }
+    const h = +sh.value, ms = minutes(h);
+    const m = cur && ms.includes(cur[1]) ? cur[1] : (lo && h === lo[0] ? ms[0] : hi && h === hi[0] ? ms[ms.length - 1] ?? 0 : 0);
+    cur = [h, m]; paint(); emit();
+  };
+  sm.onchange = () => { if (!cur) return; cur = [cur[0], +sm.value || 0]; emit(); };
+  paint();
+  f.setRange = (a, b) => { lo = parse(a); hi = parse(b); paint(); };
+  f.value = () => (cur ? `${p2(cur[0])}:${p2(cur[1])}` : '');
+  f.input = sh;
+  return f;
+}
+
 /** Gắn định dạng số kiểu Việt Nam cho 1 ô input (dùng cả cho ô tự dựng trong bảng) */
 export function bindNum(inp, kind = 'int') {
   if (kind === 'int') {

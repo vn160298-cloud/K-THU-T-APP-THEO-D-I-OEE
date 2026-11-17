@@ -16,6 +16,9 @@ const VIEWS = {
   'danh-muc': () => import('./views/admin.js'),
   'nhap-du-lieu': () => import('./views/import.js'),
   'tai-khoan': () => import('./views/account.js'),
+  'yeu-cau': () => import('./views/quantri.js'),
+  'nhat-ky': () => import('./views/quantri.js'),
+  'dung-luong': () => import('./views/quantri.js'),
   in: () => import('./views/print.js'),
   them: () => import('./views/account.js'),
 };
@@ -28,14 +31,18 @@ const NAV = () => [
   { r: 'lich', t: 'Lịch tháng', i: 'cal' },
   { r: 'danh-sach', t: 'Danh sách phiếu', i: 'list' },
   { r: 'bao-cao', t: 'Báo cáo', i: 'print' },
-  can.admin() && { sep: 'Quản trị' },
+  (can.admin() || can.moKhoa()) && { sep: 'Quản trị' },
+  can.moKhoa() && { r: 'yeu-cau', t: 'Yêu cầu mở khóa', i: 'unlock', badge: 'yc' },
   can.admin() && { r: 'danh-muc', t: 'Danh mục', i: 'gear' },
+  can.moKhoa() && { r: 'nhat-ky', t: 'Nhật ký thao tác', i: 'list' },
+  can.admin() && { r: 'dung-luong', t: 'Dung lượng & lưu trữ', i: 'chart' },
   can.admin() && { r: 'nhap-du-lieu', t: 'Nhập dữ liệu cũ', i: 'upload' },
   { sep: 'Cá nhân' },
   { r: 'tai-khoan', t: 'Tài khoản', i: 'user' },
 ].filter(Boolean);
 
 let faultCount = 0;
+let ycCount = 0;   // v1.5: số yêu cầu mở khóa đang chờ duyệt
 let cleanup = null;
 
 export function parseHash() {
@@ -49,7 +56,10 @@ export const go = (h) => { location.hash = h; };
 function drawNav() {
   const { route } = parseHash();
   const items = NAV();
-  const badge = (it) => (it.badge === 'faults' && faultCount ? `<span class="badge-dot">${faultCount > 99 ? '99+' : faultCount}</span>` : '');
+  const badge = (it) => {
+    const n = it.badge === 'faults' ? faultCount : it.badge === 'yc' ? ycCount : 0;
+    return n ? `<span class="badge-dot">${n > 99 ? '99+' : n}</span>` : '';
+  };
   const side = $('#side');
   side.hidden = false;
   side.innerHTML = items.map((it) => (it.sep ? `<div class="nn-label">${esc(it.sep)}</div>`
@@ -61,6 +71,8 @@ function drawNav() {
   tb.style.gridTemplateColumns = `repeat(${tabs.length + 1}, 1fr)`;
   tb.innerHTML = tabs.map((it) => `<a href="#/${it.r}" class="${route === it.r ? 'is-active' : ''}">${icon(it.i, 22)}<span>${esc(it.tt || it.t)}</span>${badge(it)}</a>`).join('')
     + `<a href="#/them" class="${more ? 'is-active' : ''}">${icon('menu', 22)}<span>Thêm</span></a>`;
+  // v1.5: chiều cao thanh menu dưới -> thanh nút thao tác nổi đặt ngay phía trên
+  requestAnimationFrame(() => document.documentElement.style.setProperty('--tabbar-h', `${tb.offsetHeight || 0}px`));
 }
 
 export function drawHeader() {
@@ -81,6 +93,10 @@ export async function refreshFaultBadge() {
     const h = cat.caiDat().gio_qua_han || 4;
     faultCount = list.filter((d) => d.tinh_trang !== 'da_xu_ly' && stopAgeHours(d, d.phieu) >= h).length || 0;
     S.openFaults = list;
+    if (can.moKhoa()) {
+      const { count } = await sb.from('yeu_cau_mo_khoa').select('id', { count: 'exact', head: true }).eq('trang_thai', 'cho_duyet');
+      ycCount = count || 0;
+    }
     drawNav();
   } catch { /* bỏ qua */ }
 }

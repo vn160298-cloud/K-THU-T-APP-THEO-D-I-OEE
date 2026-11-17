@@ -4,12 +4,12 @@ import { calcPhieu } from './kpi.js';
 
 const memo = new Map();
 /** nm: id nhà máy (mặc định nhà máy đang chọn); '' = mọi nhà máy */
-export async function loadCalc(from, to, { force, nm } = {}) {
+export async function loadCalc(from, to, { force, nm, moThem } = {}) {
   const nmId = nm === undefined ? S.nm : nm;
-  const key = `${nmId}|${from}|${to}`;
+  const key = `${nmId}|${from}|${to}|${moThem ? 1 : 0}`;
   const hit = memo.get(key);
   if (hit && !force && Date.now() - hit.t < 60000) return hit.v;
-  const list = await fetchPhieu({ from, to, nm: nmId });
+  const list = await fetchPhieu({ from, to, nm: nmId, moThem });
   const lastOf = {};
   const v = list.map((p) => {
     const c = calcPhieu(p, cat.caiDatOf(p.nha_may_id).nguong_dung_ngan || 5);

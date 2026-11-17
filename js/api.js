@@ -72,14 +72,19 @@ export const can = {
   xuLyLoi: () => ['ky_thuat', 'quan_ly', 'admin'].includes(S.profile?.vai_tro),
   admin: () => S.profile?.vai_tro === 'admin',
   adminTong: () => S.profile?.vai_tro === 'admin' && !S.profile?.nha_may_id,
+  /** v1.5: mở khóa trực tiếp (kèm lý do) và duyệt yêu cầu mở khóa */
+  moKhoa: () => ['quan_ly', 'admin'].includes(S.profile?.vai_tro),
+  /** v1.5: Vận hành / Tổ trưởng có bộ phận -> chỉ thấy máy, dây chuyền, phiếu của bộ phận mình */
+  boPhanRieng: () => ['van_hanh', 'to_truong'].includes(S.profile?.vai_tro) && !!S.profile?.bo_phan_id,
+  nhatKy: () => ['to_truong', 'quan_ly', 'admin'].includes(S.profile?.vai_tro),
 };
 
 // ---------- Danh mục ----------
 const TABLES = ['nha_may', 'bo_phan', 'khu_vuc', 'may', 'ma_loi', 'ly_do_ke_hoach', 'san_pham', 'toc_do', 'ca',
   'day_chuyen', 'day_chuyen_may', 'nhan_su', 'cai_dat', 'may_san_pham', 'day_chuyen_san_pham', 'toc_do_day_chuyen',
-  'day_chuyen_tong', 'phan_cong'];
+  'day_chuyen_tong', 'phan_cong', 'loi_san_pham'];
 
-const OPTIONAL = ['day_chuyen_tong', 'phan_cong'];
+const OPTIONAL = ['day_chuyen_tong', 'phan_cong', 'loi_san_pham'];
 
 async function fetchAll(table, build = (q) => q) {
   const out = [];
@@ -121,16 +126,20 @@ function indexCat(raw) {
 
 /** Danh mục lọc theo nhà máy đang chọn */
 export const cat = {
-  may: (all) => S.cat.may.filter((m) => m.nha_may_id === S.nm && (all || m.hoat_dong)),
-  boPhan: () => S.cat.bo_phan.filter((b) => b.nha_may_id === S.nm && b.hoat_dong),
+  // v1.5: Vận hành / Tổ trưởng chỉ thấy máy, dây chuyền, bộ phận của mình (máy chủ cũng chặn)
+  may: (all) => S.cat.may.filter((m) => m.nha_may_id === S.nm && (all || m.hoat_dong) && (!can.boPhanRieng() || m.bo_phan_id === S.profile.bo_phan_id)),
+  boPhan: () => S.cat.bo_phan.filter((b) => b.nha_may_id === S.nm && b.hoat_dong && (!can.boPhanRieng() || b.id === S.profile.bo_phan_id)),
   ca: (boPhanId) => S.cat.ca.filter((c) => c.nha_may_id === S.nm && c.hoat_dong && (!boPhanId || !c.bo_phan_id || c.bo_phan_id === boPhanId)),
   maLoi: (mayId) => S.cat.ma_loi.filter((l) => l.may_id === mayId && l.hoat_dong),
+  /** v1.4: danh mục lỗi sản phẩm của 1 sản phẩm */
+  loiSp: (spId, all = false) => sortCat((S.cat.loi_san_pham || []).filter((l) => l.san_pham_id === spId && (all || l.hoat_dong))),
   lyDo: () => S.cat.ly_do_ke_hoach.filter((l) => l.nha_may_id === S.nm && l.hoat_dong),
   sanPham: () => S.cat.san_pham.filter((s) => s.nha_may_id === S.nm && s.hoat_dong),
   nhanSu: (roles) => S.cat.nhan_su.filter((n) => n.hoat_dong && (n.nha_may_id === S.nm || !n.nha_may_id) && (!roles || roles.includes(n.vai_tro))),
   tocDo: (mayId, spId) => S.cat.toc_do.find((t) => t.may_id === mayId && t.san_pham_id === spId)?.sp_phut ?? null,
   caiDat: () => S.cat.byId.cai_dat[S.nm] || { nguong_dung_ngan: 5, gio_qua_han: 4 },
-  dayChuyen: () => S.cat.day_chuyen.filter((d) => d.nha_may_id === S.nm && d.hoat_dong),
+  dayChuyen: () => S.cat.day_chuyen.filter((d) => d.nha_may_id === S.nm && d.hoat_dong
+    && (!can.boPhanRieng() || cat.members(d.id).some((x) => S.cat.byId.may[x.may_id]?.bo_phan_id === S.profile.bo_phan_id))),
   caiDatOf: (nmId) => S.cat.byId.cai_dat[nmId] || { nguong_dung_ngan: 5, gio_qua_han: 4 },
   /** Các dây chuyền (đang dùng) chứa máy — máy dùng chung có thể thuộc nhiều dây chuyền */
   linesOfMay: (mayId) => S.cat.day_chuyen_may.filter((r) => r.may_id === mayId).map((r) => S.cat.byId.day_chuyen[r.day_chuyen_id]).filter((l) => l && l.hoat_dong),
@@ -176,14 +185,32 @@ export const cat = {
 
 // ---------- Phiếu ----------
 /** nm: id nhà máy (mặc định nhà máy đang chọn); nm = '' -> mọi nhà máy (chỉ admin tổng thấy hết nhờ RLS) */
-export async function fetchPhieu({ from, to, mayId, nm } = {}) {
+export async function fetchPhieu({ from, to, mayId, nm, moThem } = {}) {
   const nmId = nm === undefined ? S.nm : nm;
-  return fetchAll('phieu', () => {
-    let q = sb.from('phieu').select('*, dung_may(*), dung_ke_hoach(*)').gte('ngay', from).lte('ngay', to).order('ngay').order('id');
-    if (nmId) q = q.eq('nha_may_id', nmId);
-    if (mayId) q = q.eq('may_id', mayId);
+  const base = (q) => { if (nmId) q = q.eq('nha_may_id', nmId); if (mayId) q = q.eq('may_id', mayId); return q; };
+  const jobs = [fetchAll('phieu', () => base(sb.from('phieu').select('*, dung_may(*), dung_ke_hoach(*)').gte('ngay', from).lte('ngay', to).order('ngay').order('id')))];
+  // v1.5: kèm phiếu CHƯA hoàn tất (chưa xác nhận) cũ hơn khoảng ngày đang xem
+  if (moThem) jobs.push(fetchAll('phieu', () => base(sb.from('phieu').select('*, dung_may(*), dung_ke_hoach(*)').lt('ngay', from).neq('trang_thai', 'da_xac_nhan').order('ngay').order('id'))));
+  // v1.5: khoảng ngày chạm vào phần đã lưu trữ (cũ hơn ~6 tháng) -> đọc thêm từ kho lưu trữ (chỉ xem)
+  if (from < MOC_LUU_TRU()) jobs.push(fetchArchive({ from, to, nm: nmId, mayId }).catch(() => []));
+  const parts = await Promise.all(jobs);
+  const seen = new Set(), out = [];
+  for (const r of parts.flat()) if (!seen.has(r.id)) { seen.add(r.id); out.push(r); }
+  return out;
+}
+
+/** Mốc ngày: cũ hơn mốc này có thể đã nằm trong kho lưu trữ (để dư 1 tháng cho chắc) */
+export const MOC_LUU_TRU = () => { const d = new Date(); d.setMonth(d.getMonth() - 5); return d.toISOString().slice(0, 10); };
+
+/** Phiếu trong kho lưu trữ: trả về đúng dạng phiếu thường, đánh dấu _luu_tru = true (chỉ xem) */
+export async function fetchArchive({ from, to, nm, mayId, id } = {}) {
+  const rows = await fetchAll('phieu_luu_tru', () => {
+    let q = sb.from('phieu_luu_tru').select('du_lieu');
+    if (id) q = q.or(`id.eq.${id},nhom_id.eq.${id}`);
+    else { q = q.gte('ngay', from).lte('ngay', to).order('ngay').order('id'); if (nm) q = q.eq('nha_may_id', nm); if (mayId) q = q.eq('may_id', mayId); }
     return q;
   });
+  return rows.map((r) => ({ ...r.du_lieu, _luu_tru: true }));
 }
 
 export async function getPhieu(id) {
@@ -215,7 +242,12 @@ export async function getPhieuGroup(id) {
   if (error) throw error;
   if (data.length) return data;
   const p = await getPhieu(id);
-  if (!p) return [];
+  if (!p) {
+    // v1.5: không còn ở bảng phiếu -> tìm trong kho lưu trữ (chỉ xem)
+    const arc = await fetchArchive({ id }).catch(() => []);
+    if (arc.length === 1 && arc[0].nhom_id) return fetchArchive({ id: arc[0].nhom_id }).catch(() => arc);
+    return arc;
+  }
   if (!p.nhom_id) return [p];
   ({ data, error } = await sb.from('phieu').select(PHIEU_SEL).eq('nhom_id', p.nhom_id));
   if (error) throw error;
