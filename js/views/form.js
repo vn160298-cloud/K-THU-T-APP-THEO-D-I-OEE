@@ -169,13 +169,22 @@ function form(main, d) {
   const repMay = () => S.cat.byId.may[repMayId()];
   const targetValue = () => (d.day_chuyen_id ? `dc:${d.day_chuyen_id}` : d.may_id ? `m:${d.may_id}` : '');
   const kvOf = (m) => cat.name('khu_vuc', m.khu_vuc_id) || 'Chưa có khu vực';
-  const people = (roles) => cat.nhanSu(roles).map((n) => ({ value: n.id, label: n.ho_ten, sub: `${n.ma_nv} · ${VAI_TRO[n.vai_tro]}` }));
+  const people = (roles) => cat.nhanSu(roles).map((n) => ({ value: n.id, label: n.ho_ten, sub: `${n.ma_nv} · ${VAI_TRO[n.vai_tro]}${n.ca_id ? ` · ${cat.name('ca', n.ca_id)}` : ''}` }));
+  // v1.11: chỉ gợi ý người đúng bộ phận + ca của phiếu (kỹ thuật: chỉ theo ca); nút "Xem tất cả" để chọn người làm thay
+  const peopleNhom = (roles, theoBp = true) => { const ok = new Set(cat.nhanSu(roles).filter((n) => cat.hopNhom(n, { bp: theoBp ? d.bo_phan_id : '', ca: d.ca_id })).map((n) => n.id));
+    return people(roles).filter((o) => ok.has(o.value)); };
+  const comboNhom = (label, key, roles, theoBp = true) => {
+    const all = people(roles), nhom = peopleNhom(roles, theoBp);
+    const cur = d[key] && !nhom.some((o) => o.value === d[key]) ? all.filter((o) => o.value === d[key]) : [];
+    return comboField({ label, value: d[key], options: [...nhom, ...cur], more: nhom.length < all.length ? { label: 'Xem tất cả nhân sự (khác bộ phận / ca)', options: () => all } : undefined,
+      onChange: (v) => { d[key] = v; changed(); } });
+  };
   // Phân công: Ca + Dây chuyền/Máy -> chỉ hiện người được phân công (có nút "Xem tất cả")
   const assigned = (vaiTro) => (d.ca_id && (d.may_id || d.day_chuyen_id) ? cat.phanCong(d.ca_id, target(), vaiTro) : []);
   const peopleField = (label, key, vaiTro, roles) => {
     const list = assigned(vaiTro);
     const all = people(roles);
-    if (!list.length) return comboField({ label, value: d[key], options: all, onChange: (v) => { d[key] = v; changed(); } });
+    if (!list.length) return comboNhom(label, key, roles);
     const opts = list.map((n) => ({ value: n.id, label: n.ho_ten, sub: `${n.ma_nv} · phân công ca này` }));
     const cur = d[key] && !opts.some((o) => o.value === d[key]) ? all.filter((o) => o.value === d[key]) : [];
     return comboField({ label, value: d[key], options: [...opts, ...cur], more: { label: 'Xem tất cả nhân sự (người làm thay)', options: () => all },
@@ -370,7 +379,7 @@ function form(main, d) {
     g1.append(
       peopleField('Người vận hành', 'nguoi_van_hanh_id', 'van_hanh'),
       peopleField('Tổ trưởng', 'to_truong_id', 'to_truong', ['to_truong', 'quan_ly']),
-      comboField({ label: 'Kỹ thuật', value: d.ky_thuat_id, options: people(['ky_thuat']), onChange: (v) => { d.ky_thuat_id = v; changed(); } }),
+      comboNhom('Kỹ thuật', 'ky_thuat_id', ['ky_thuat'], false),
     );
 
     // --- Thời gian & sản lượng

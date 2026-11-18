@@ -143,7 +143,10 @@ async function editor(main, id, bp0 = '') {
     const ds = (S.cat.nhan_su_ca || []).filter((n) => n.hoat_dong && n.nha_may_id === nm && n.bo_phan_id === g.bo_phan_id);
     const theoCa = ds.filter((n) => !n.ca_id || n.ca_id === g.ca_id);
     const list = (theoCa.length ? theoCa : ds).sort((a, b) => (a.thu_tu - b.thu_tu) || a.ho_ten.localeCompare(b.ho_ten, 'vi')).map((n) => (n.ma_nv ? `${n.ho_ten} - ${n.ma_nv}` : n.ho_ten));
-    return list.length ? list : nsList().map((n) => n.ho_ten);
+    // v1.11: thêm tài khoản app đúng bộ phận + ca (tab Nhân sự có cột Ca)
+    const tk = nsList().filter((n) => cat.hopNhom(n, { bp: g.bo_phan_id, ca: g.ca_id }) && (n.bo_phan_id || n.ca_id)).map((n) => `${n.ho_ten} - ${n.ma_nv}`);
+    const gop = [...new Set([...list, ...tk])];
+    return gop.length ? gop : nsList().map((n) => n.ho_ten);
   };
   /** Loại bao bì của sản phẩm (mã BTP): Danh mục → Sản phẩm; chưa khai thì đoán theo ĐVT / tên có chữ "lon" */
   const loaiBB = (ma) => {
@@ -187,8 +190,17 @@ async function editor(main, id, bp0 = '') {
     loai_nl: () => dsNhanh('loai_nguyen_lieu'),
   };
   /** Danh sách lỗi cho ô nhiều lỗi: QA đầu vào theo lon / chai; nguyên liệu theo danh mục lỗi sản phẩm */
-  const loiVar = (k, r) => (k === 'cl_qa' ? loaiBB(r.ma_sp) || 'chai' : 'nl');
-  const loiItems = (key, v) => (v === 'lon' ? dsNhanh('loi_qa_lon') : v === 'chai' ? dsNhanh('loi_qa_chai') : LISTS.loi(gdKey(key)));
+  // v1.11: lỗi QA đầu vào = Lỗi sản phẩm (giai đoạn QA đầu vào) của chính sản phẩm; chưa khai thì dùng bộ lỗi của sản phẩm cùng loại Lon / Chai
+  const loiVar = (k, r) => (k === 'cl_qa' ? `sp${String(r.ma_sp || '').replace(/[^\w-]/g, '_')}` : 'nl');
+  const loiQA = (ma) => {
+    const ten = (ds) => [...new Set([...ds.sort((a, b) => a.thu_tu - b.thu_tu).map((l) => l.ten), LOI_KHAC.ten])];
+    const qa = (S.cat.loi_san_pham || []).filter((l) => l.hoat_dong && l.giai_doan === 'qc_dau_vao');
+    const sp = S.cat.san_pham.find((x) => x.ma === ma && x.nha_may_id === nm);
+    const rieng = sp ? qa.filter((l) => l.san_pham_id === sp.id) : [];
+    if (rieng.length) return ten(rieng);
+    const loai = loaiBB(ma) || 'chai';
+    return ten(qa.filter((l) => { const p = S.cat.byId.san_pham[l.san_pham_id]; return p && p.nha_may_id === nm && loaiBB(p.ma) === loai; }));
+  };
   const maNM = () => (S.cat.byId.nha_may[nm]?.ma || '').slice(0, 1);
   /** Tự tính các ô "auto" của 1 dòng */
   const AUTO = {
@@ -387,7 +399,7 @@ async function editor(main, id, bp0 = '') {
     const lists = cols.map(([, , , t]) => t && listOf(t)).filter(Boolean);
     listId = key; curK = k;
     const items = (l) => (l === 'loi' ? LISTS.loi(gdKey(key)) : LISTS[l]?.() || []);
-    const dls = [...lists.map((l) => [l, items(l)]), ...(cols.some(([, , , t]) => t === 'loids') ? (k === 'cl_qa' ? ['lon', 'chai'] : ['nl']).map((v) => [v, loiItems(key, v)]) : [])];
+    const dls = [...lists.map((l) => [l, items(l)]), ...(cols.some(([, , , t]) => t === 'loids') ? (k === 'cl_qa' ? [...new Set(rows.map((r) => r.ma_sp || ''))].map((m) => [loiVar(k, { ma_sp: m }), loiQA(m)]) : [['nl', LISTS.loi(gdKey(key))]]) : [])];
     box.innerHTML = `${dls.map(([l, ds]) => `<datalist id="dl-${key}-${l}">${ds.map((x) => `<option value="${esc(x)}">`).join('')}</datalist>`).join('')}
       <div class="nn-table-wrap"><table class="nn-table gc-tb"><thead><tr>${cols.map(([, l]) => `<th>${esc(l)}</th>`).join('')}${canEdit ? '<th></th>' : ''}</tr></thead><tbody>
       ${rows.map((r, i) => `<tr>${cols.map((col) => `<td>${cell(r, i, col)}</td>`).join('')}
