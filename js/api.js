@@ -142,6 +142,8 @@ export const cat = {
   lyDo: () => S.cat.ly_do_ke_hoach.filter((l) => l.nha_may_id === S.nm && l.hoat_dong),
   sanPham: () => S.cat.san_pham.filter((s) => s.nha_may_id === S.nm && s.hoat_dong),
   nhanSu: (roles) => S.cat.nhan_su.filter((n) => n.hoat_dong && (n.nha_may_id === S.nm || !n.nha_may_id) && (!roles || roles.includes(n.vai_tro))),
+  /** v1.11: người thuộc đúng nhóm: bộ phận (người chưa gán bộ phận vẫn hiện) + ca (người chưa xếp ca vẫn hiện) */
+  hopNhom: (n, { bp, ca } = {}) => (!bp || !n.bo_phan_id || n.bo_phan_id === bp) && (!ca || !n.ca_id || n.ca_id === ca),
   tocDo: (mayId, spId) => S.cat.toc_do.find((t) => t.may_id === mayId && t.san_pham_id === spId)?.sp_phut ?? null,
   caiDat: () => S.cat.byId.cai_dat[S.nm] || { nguong_dung_ngan: 5, gio_qua_han: 4 },
   dayChuyen: () => S.cat.day_chuyen.filter((d) => d.nha_may_id === S.nm && d.hoat_dong
