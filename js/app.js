@@ -25,14 +25,29 @@ const VIEWS = {
   them: () => import('./views/account.js'),
 };
 
-const NAV = () => [
+// v1.10: 3 nhóm chính theo bộ phận (tìm theo tên bộ phận của nhà máy đang chọn). Mỗi nhóm: Phiếu ghi nhận OEE, Báo cáo giao ca,
+// Danh sách phiếu — mở sẵn đúng bộ phận đó. Tổ trưởng / vận hành chỉ thấy nhóm của bộ phận mình; quản lý, admin thấy cả 3.
+const NHOM = [['Sản xuất', /s[aả]n xu[aấ]t/i, 'sanxuat'], ['Đóng gói', /[dđ][oó]ng g[oó]i/i, 'doc'], ['Kỹ thuật', /k[yỹ] thu[aậ]t/i, 'kythuat']];
+export function nhomBoPhan() {
+  const bps = cat.boPhan();
+  return NHOM.map(([t, re, i]) => ({ t, i, bp: bps.find((b) => re.test(b.ten)) })).filter((x) => x.bp);
+}
+const NAV = () => {
+  const nhom = nhomBoPhan();
+  const theoBp = nhom.flatMap(({ t, bp }) => [{ sep: t },
+    can.ghiPhieu() && { r: 'ghi-phieu', bp: bp.id, t: 'Phiếu ghi nhận OEE', i: 'plus' },
+    { r: 'giao-ca', bp: bp.id, t: 'Phiếu báo cáo giao ca', i: 'users' },
+    { r: 'danh-sach', bp: bp.id, t: 'Danh sách phiếu', i: 'list' }]);
+  return [
   { r: 'hom-nay', t: 'Hôm nay', i: 'home', tab: true },
-  can.ghiPhieu() && { r: 'ghi-phieu', t: 'Ghi phiếu', i: 'plus', tab: true },
+  can.ghiPhieu() && { r: 'ghi-phieu', t: 'Ghi phiếu', i: 'plus', tab: true, an: nhom.length > 0 },
   { r: 'loi', t: 'Lỗi cần xử lý', tt: 'Lỗi', i: 'warn', tab: true, badge: 'faults' },
   { r: 'chi-so', t: 'Chỉ số OEE', tt: 'Chỉ số', i: 'chart', tab: true },
+  ...theoBp,
+  nhom.length && { sep: 'Theo dõi' },
   { r: 'lich', t: 'Lịch tháng', i: 'cal' },
-  { r: 'danh-sach', t: 'Danh sách phiếu', i: 'list' },
-  { r: 'giao-ca', t: 'Báo cáo giao ca', i: 'users' },
+  !nhom.length && { r: 'danh-sach', t: 'Danh sách phiếu', i: 'list' },
+  !nhom.length && { r: 'giao-ca', t: 'Báo cáo giao ca', i: 'users' },
   { r: 'bao-cao', t: 'Báo cáo', i: 'print' },
   (can.admin() || can.moKhoa()) && { sep: 'Quản trị' },
   can.moKhoa() && { r: 'yeu-cau', t: 'Yêu cầu mở khóa', i: 'unlock', badge: 'yc' },
@@ -43,7 +58,12 @@ const NAV = () => [
   { sep: 'Cá nhân' },
   { r: 'gop-y', t: 'Góp ý app', i: 'edit' },
   { r: 'tai-khoan', t: 'Tài khoản', i: 'user' },
-].filter(Boolean);
+  ].filter(Boolean);
+};
+/** v1.10: các mục cho trang "Thêm" trên điện thoại (mọi mục không nằm ở thanh dưới) */
+export const navThem = () => NAV().filter((x) => !x.tab && x.r !== 'tai-khoan');
+const hrefOf = (it) => `#/${it.r}${it.bp ? `?bp=${it.bp}` : ''}`;
+const isActive = (it, route, q) => route === it.r && (it.bp ? q.bp === it.bp : !q.bp || it.tab);
 
 let faultCount = 0;
 let ycCount = 0;   // v1.5: số yêu cầu mở khóa đang chờ duyệt
@@ -58,7 +78,7 @@ export function parseHash() {
 export const go = (h) => { location.hash = h; };
 
 function drawNav() {
-  const { route } = parseHash();
+  const { route, q } = parseHash();
   const items = NAV();
   const badge = (it) => {
     const n = it.badge === 'faults' ? faultCount : it.badge === 'yc' ? ycCount : 0;
@@ -66,8 +86,8 @@ function drawNav() {
   };
   const side = $('#side');
   side.hidden = false;
-  side.innerHTML = items.map((it) => (it.sep ? `<div class="nn-label">${esc(it.sep)}</div>`
-    : `<a href="#/${it.r}" class="${route === it.r ? 'is-active' : ''}">${icon(it.i, 20)}<span>${esc(it.t)}</span>${badge(it)}</a>`)).join('');
+  side.innerHTML = items.filter((it) => !it.an).map((it) => (it.sep ? `<div class="nn-label">${esc(it.sep)}</div>`
+    : `<a href="${hrefOf(it)}" class="${isActive(it, route, q) ? 'is-active' : ''}">${icon(it.i, 20)}<span>${esc(it.t)}</span>${badge(it)}</a>`)).join('');
   const tabs = items.filter((x) => x.tab);
   const more = !tabs.some((t) => t.r === route) ;
   const tb = $('#tabbar');
