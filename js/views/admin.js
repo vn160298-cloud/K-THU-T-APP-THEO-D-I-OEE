@@ -26,6 +26,20 @@ const dcOf = (nm) => S.cat.day_chuyen.filter((l) => l.hoat_dong && (nm ? l.nha_m
 const donOf = (all, nm) => S.cat.may.filter((m) => (all || m.hoat_dong) && (nm ? m.nha_may_id === nm : !NMF || m.nha_may_id === NMF) && !cat.lineOfMay(m.id));
 const LOAI_DS = { ly_do_tang_ca: 'Lý do tăng ca', loi_ky_luat: 'Lỗi kỷ luật lao động', loi_qa_lon: 'Lỗi QA đầu vào — yến lon', loi_qa_chai: 'Lỗi QA đầu vào — yến chai', loai_nguyen_lieu: 'Loại nguyên liệu / bao bì' };
 const BAO_BI = { lon: 'Yến lon', chai: 'Yến chai' };
+// v1.10.1: Danh sách nhập nhanh tách riêng từng loại; lỗi QA đầu vào (lon / chai) quản lý ở tab Lỗi sản phẩm
+const DS_NHANH = ['ly_do_tang_ca', 'loi_ky_luat', 'loai_nguyen_lieu'];
+const LOI_QA = { loi_qa_lon: 'Lỗi QA đầu vào — yến lon', loi_qa_chai: 'Lỗi QA đầu vào — yến chai' };
+let dsLoai = 'ly_do_tang_ca', lspMode = 'sp';
+/** Nút chọn phụ (dạng tab nhỏ) */
+const subTabs = (list, cur, attr) => `<div class="nn-row" style="padding:0 0 12px;gap:8px;flex-wrap:wrap">${list.map(([k, t]) =>
+  `<button class="nn-btn ${k === cur ? 'nn-btn-primary' : 'nn-btn-secondary'} nn-btn-sm" ${attr}="${k}">${esc(t)}</button>`).join('')}</div>`;
+/** Bảng danh sách dùng chung (ds_nhap_nhanh) của 1 loại */
+const dsCfg = (loai, title, hint) => ({
+  title, table: 'ds_nhap_nhanh', nmCol: true, rows: (S.cat.ds_nhap_nhanh || []).filter((r) => r.loai === loai).sort((a, b) => a.thu_tu - b.thu_tu),
+  cols: [['thu_tu', 'TT'], ['ten', 'Nội dung'], [(r) => yes(r.hoat_dong), 'Trạng thái', 'html']],
+  fields: [['ten', 'Nội dung', 'text', true, null, hint], ['thu_tu', 'Thứ tự', 'number'], ['hoat_dong', 'Đang dùng', 'bool']],
+  def: () => ({ loai, hoat_dong: true, thu_tu: (S.cat.ds_nhap_nhanh || []).filter((r) => r.loai === loai).length + 1 }),
+});
 
 // ---------- v1.4: lọc theo Khu vực / Bộ phận / Dây chuyền (suy ra qua máy) ----------
 // sc = { kv, bp, dc }: dây chuyền thuộc khu vực / bộ phận nếu có ít nhất 1 máy thuộc khu vực / bộ phận đó.
@@ -134,14 +148,6 @@ const CFG = {
       ['quy_cach_thung', 'Quy cách đóng thùng', 'text', false, null, 'VD: 8 Lốc / 1 thùng'], ['ghi_chu', 'Ghi chú', 'text'], ['thu_tu', 'Thứ tự', 'number'], ['hoat_dong', 'Đang dùng', 'bool']],
     def: () => ({ sl_btp_tp: 1, hoat_dong: true, thu_tu: (S.cat.quy_cach_tp || []).length + 1 }),
   }),
-  ds_nhap_nhanh: () => ({
-    title: 'Danh sách nhập nhanh (dùng chung mọi nhà máy)', rows: S.cat.ds_nhap_nhanh || [], nmCol: true,
-    filters: [{ key: 'loai', label: 'Loại danh sách', get: (r) => LOAI_DS[r.loai] }],
-    cols: [[(r) => LOAI_DS[r.loai], 'Loại'], ['ten', 'Nội dung'], [(r) => yes(r.hoat_dong), 'Trạng thái', 'html']],
-    fields: [['loai', 'Loại danh sách', 'select', true, () => Object.entries(LOAI_DS).map(([k, v]) => ({ value: k, label: v }))], ['ten', 'Nội dung', 'text', true],
-      ['thu_tu', 'Thứ tự', 'number'], ['hoat_dong', 'Đang dùng', 'bool']],
-    def: () => ({ loai: 'ly_do_tang_ca', hoat_dong: true, thu_tu: 0 }),
-  }),
   ly_do_ke_hoach: () => ({
     title: 'Lý do dừng có kế hoạch', rows: ofNm('ly_do_ke_hoach'),
     cols: [['ten', 'Lý do'], [(r) => yes(r.hoat_dong), 'Trạng thái', 'html']],
@@ -200,13 +206,25 @@ export async function render(main, { q }) {
     const body = $('[data-body]', main); body.innerHTML = '';
     body.onclick = null; body.oninput = null; body.onchange = null; // bỏ handler của tab trước
     if (tab === 'nhan_su') nhanSu(body, show);
+    else if (tab === 'ds_nhap_nhanh') {
+      body.innerHTML = `${subTabs(DS_NHANH.map((k) => [k, LOAI_DS[k]]), dsLoai, 'data-dsl')}<div data-in></div>`;
+      $('[data-dsl]', body).parentElement.onclick = (e) => { const b = e.target.closest('[data-dsl]'); if (b) { dsLoai = b.dataset.dsl; show(); } };
+      crud($('[data-in]', body), () => dsCfg(dsLoai, `${LOAI_DS[dsLoai]} (dùng chung mọi nhà máy)`), show);
+    }
+    else if (tab === 'loi_sp') {
+      body.innerHTML = `${subTabs([['sp', 'Lỗi theo sản phẩm'], ...Object.entries(LOI_QA)], lspMode, 'data-lsm')}<div data-in></div>`;
+      $('[data-lsm]', body).parentElement.onclick = (e) => { const b = e.target.closest('[data-lsm]'); if (b) { lspMode = b.dataset.lsm; show(); } };
+      const inner = $('[data-in]', body);
+      if (lspMode === 'sp') loiSp(inner, show);
+      else crud(inner, () => dsCfg(lspMode, `${LOI_QA[lspMode]} (dùng chung mọi nhà máy)`,
+        `Báo cáo giao ca Đóng gói → QA đầu vào: sản phẩm loại ${lspMode === 'loi_qa_lon' ? 'Lon' : 'Chai'} chọn lỗi trong danh sách này`), show);
+    }
     else if (CFG[tab]) crud(body, () => ({ table: tab, ...CFG[tab]() }), show);
     else if (tab === 'ma_loi') maLoi(body, show);
     else if (tab === 'toc_do') tocDo(body);
     else if (tab === 'day_chuyen') dayChuyen(body, show);
     else if (tab === 'cai_dat') caiDat(body);
     else if (tab === 'phan_cong') phanCong(body);
-    else if (tab === 'loi_sp') loiSp(body, show);
   };
   $('[data-tabs]', main).onclick = (e) => { const b = e.target.closest('[data-tab]'); if (b) { tab = b.dataset.tab; show(); } };
   $('[data-reload]', main).onclick = async () => {
@@ -249,7 +267,7 @@ function crud(box, cfgFn, refresh) {
   const cfg = cfgFn();
   const defs = [...(cfg.filters || []), { key: '_hd', label: 'Trạng thái', get: (r) => (r.hoat_dong === false ? 'Ngưng' : 'Đang dùng') }];
   // giữ lại lựa chọn lọc khi bảng được vẽ lại (sau khi thêm/sửa/xóa)
-  const st = (crud.st = crud.st && crud.st.t === cfg.table && crud.st.nm === S.nm ? crud.st : { t: cfg.table, nm: S.nm, kw: '', f: {} });
+  const st = (crud.st = crud.st && crud.st.t === cfg.table + cfg.title && crud.st.nm === S.nm ? crud.st : { t: cfg.table + cfg.title, nm: S.nm, kw: '', f: {} });
 
   box.innerHTML = `<section class="card"><div class="card-head"><div class="t-h2">${esc(cfg.title)} <span data-count></span></div>
     <div class="nn-row" style="padding:0"><div class="nn-input-wrap nn-input-md">${icon('search', 18, 'muted')}<input class="nn-input" placeholder="Tìm…" data-kw value="${esc(st.kw)}"></div>
