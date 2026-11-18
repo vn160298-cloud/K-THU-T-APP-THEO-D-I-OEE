@@ -3,7 +3,7 @@
 import { S, sb, cat, can, loadCatalog, rpc, errText } from '../api.js';
 import { lsSet } from '../store.js';
 import { clearCalc } from '../data.js';
-import { esc, icon, hm, NHOM_TT, LOAI_LOI, MUC_DO, LOI_KHAC, mucDoBadge, VAI_TRO, toNum, sortCat, noAccent, numInput } from '../lib.js';
+import { GIAI_DOAN, esc, icon, hm, NHOM_TT, LOAI_LOI, MUC_DO, LOI_KHAC, mucDoBadge, VAI_TRO, toNum, sortCat, noAccent, numInput } from '../lib.js';
 import { el, $, $$, toast, openSheet, confirmBox, inputField, selectField, comboField, segmented, timeField } from '../ui.js';
 import { drawHeader } from '../app.js';
 import { exportCatalog, importCatalog, confirmPin } from './catalog_xlsx.js';
@@ -108,19 +108,25 @@ const CFG = {
     def: () => ({ nha_may_id: NMF || S.nm, hoat_dong: true, thu_tu: 0 }),
   }),
   quy_cach: () => ({
-    title: 'Quy cách đóng gói', rows: ofNm('quy_cach'),
-    cols: [['ten', 'Quy cách'], ['sku_thung', 'SKU / thùng'], ['chai_sku', 'Chai-hũ / SKU'], [(r) => `${+r.sku_thung * +r.chai_sku} chai-hũ / thùng`, 'Quy đổi'], [(r) => yes(r.hoat_dong), 'Trạng thái', 'html']],
-    fields: [['ten', 'Tên quy cách', 'text', true, null, 'VD: L6, HQ6, LỐC 4'], ['sku_thung', 'Số SKU trong 1 thùng', 'number', true], ['chai_sku', 'Số chai / hũ trong 1 SKU', 'number', true],
-      ['thu_tu', 'Thứ tự', 'number'], ['hoat_dong', 'Đang dùng', 'bool']],
-    def: () => ({ nha_may_id: NMF || S.nm, sku_thung: 1, chai_sku: 1, hoat_dong: true, thu_tu: ofNm('quy_cach').length + 1 }),
+    title: 'Quy cách đóng gói thành phẩm (dùng chung)', rows: S.cat.quy_cach_tp || [], table: 'quy_cach_tp', nmCol: true,
+    filters: [{ key: 'btp', label: 'Sản phẩm (BTP)', get: (r) => r.ten_btp || r.ma_btp || 'Chưa có' }, { key: 'dvt', label: 'ĐVT TP', get: (r) => r.dvt_tp || '—' }],
+    cols: [['ma_tp', 'Mã TP', 'mono'], ['ten_tp', 'Tên thành phẩm'], ['dvt_tp', 'ĐVT'], [(r) => `${r.ma_btp || ''} · ${r.ten_btp || ''}`, 'BTP (SKU)'],
+      [(r) => r.quy_cach_dong || (r.sl_btp_tp ? `${+r.sl_btp_tp} ${r.dvt_btp || ''} / 1 ${r.dvt_tp || ''}` : ''), 'Quy cách đóng'],
+      [(r) => r.quy_cach_thung || (r.sl_tp_thung ? `${+r.sl_tp_thung} ${r.dvt_tp || ''} / 1 thùng` : '—'), 'Quy cách thùng'], [(r) => yes(r.hoat_dong), 'Trạng thái', 'html']],
+    fields: [['ma_tp', 'Mã thành phẩm (TP)', 'text', true], ['ten_tp', 'Tên thành phẩm', 'text', true], ['dvt_tp', 'ĐVT thành phẩm', 'text', false, null, 'VD: Hộp, Lốc'],
+      ['ma_btp', 'Mã BTP (SKU) = mã sản phẩm', 'text'], ['ten_btp', 'Tên BTP', 'text'], ['dvt_btp', 'ĐVT BTP', 'text', false, null, 'VD: Hũ, Chai, Lon'],
+      ['sl_btp_tp', 'Số BTP trong 1 thành phẩm', 'number', true], ['quy_cach_dong', 'Quy cách đóng', 'text', false, null, 'VD: 6 Hũ / 1 Lốc'],
+      ['ma_thung', 'Mã thùng', 'text'], ['ten_thung', 'Tên thùng', 'text'], ['sl_tp_thung', 'Số thành phẩm trong 1 thùng', 'number'],
+      ['quy_cach_thung', 'Quy cách đóng thùng', 'text', false, null, 'VD: 8 Lốc / 1 thùng'], ['ghi_chu', 'Ghi chú', 'text'], ['thu_tu', 'Thứ tự', 'number'], ['hoat_dong', 'Đang dùng', 'bool']],
+    def: () => ({ sl_btp_tp: 1, hoat_dong: true, thu_tu: (S.cat.quy_cach_tp || []).length + 1 }),
   }),
   ds_nhap_nhanh: () => ({
-    title: 'Danh sách nhập nhanh', rows: ofNm('ds_nhap_nhanh'),
+    title: 'Danh sách nhập nhanh (dùng chung mọi nhà máy)', rows: S.cat.ds_nhap_nhanh || [], nmCol: true,
     filters: [{ key: 'loai', label: 'Loại danh sách', get: (r) => LOAI_DS[r.loai] }],
     cols: [[(r) => LOAI_DS[r.loai], 'Loại'], ['ten', 'Nội dung'], [(r) => yes(r.hoat_dong), 'Trạng thái', 'html']],
     fields: [['loai', 'Loại danh sách', 'select', true, () => Object.entries(LOAI_DS).map(([k, v]) => ({ value: k, label: v }))], ['ten', 'Nội dung', 'text', true],
       ['thu_tu', 'Thứ tự', 'number'], ['hoat_dong', 'Đang dùng', 'bool']],
-    def: () => ({ nha_may_id: NMF || S.nm, loai: 'ly_do_tang_ca', hoat_dong: true, thu_tu: 0 }),
+    def: () => ({ loai: 'ly_do_tang_ca', hoat_dong: true, thu_tu: 0 }),
   }),
   ly_do_ke_hoach: () => ({
     title: 'Lý do dừng có kế hoạch', rows: ofNm('ly_do_ke_hoach'),
@@ -180,7 +186,7 @@ export async function render(main, { q }) {
     const body = $('[data-body]', main); body.innerHTML = '';
     body.onclick = null; body.oninput = null; body.onchange = null; // bỏ handler của tab trước
     if (tab === 'nhan_su') nhanSu(body, show);
-    else if (CFG[tab]) crud(body, () => ({ ...CFG[tab](), table: tab }), show);
+    else if (CFG[tab]) crud(body, () => ({ table: tab, ...CFG[tab]() }), show);
     else if (tab === 'ma_loi') maLoi(body, show);
     else if (tab === 'toc_do') tocDo(body);
     else if (tab === 'day_chuyen') dayChuyen(body, show);
@@ -279,7 +285,7 @@ function editRow(cfg, row, refresh, table = cfg.table) {
   const val = { ...row };
   const body = el('<div class="form-grid"></div>');
   // v1.7: admin tổng chọn nhà máy của dòng (danh mục gộp nhiều nhà máy)
-  if (can.adminTong() && 'nha_may_id' in val && !['nha_may', 'nhan_su', 'cai_dat'].includes(table) && !cfg.fields.some(([k]) => k === 'nha_may_id')) {
+  if (can.adminTong() && 'nha_may_id' in val && !['nha_may', 'nhan_su', 'cai_dat', 'ds_nhap_nhanh', 'quy_cach_tp'].includes(table) && !cfg.fields.some(([k]) => k === 'nha_may_id')) {
     body.append(selectField({ label: 'Nhà máy', value: val.nha_may_id || '', req: true, size: 'md', options: S.cat.nha_may.map((n) => ({ value: n.id, label: n.ten })), onChange: (v) => { val.nha_may_id = v || null; } }));
   }
   for (const [k, label, type, req, options, hint] of cfg.fields) {
@@ -546,7 +552,8 @@ function loiSp(box, refresh) {
   if (!prods().some((p) => p.id === st.sp)) st.sp = prods()[0]?.id || '';
   const allOf = () => cat.loiSp(st.sp, true);
   const cfg = () => ({ title: 'Lỗi sản phẩm', table: 'loi_san_pham', rows: allOf(),
-    fields: [['ma', 'Mã lỗi (không bắt buộc)', 'text'], ['ten', 'Tên lỗi', 'text', true], ['thu_tu', 'Thứ tự', 'number'], ['hoat_dong', 'Đang dùng', 'bool']] });
+    fields: [['giai_doan', 'Giai đoạn', 'select', true, () => Object.entries(GIAI_DOAN).map(([k, v]) => ({ value: k, label: `${v.label} (${v.bp})` }))],
+      ['ma', 'Mã lỗi (không bắt buộc)', 'text'], ['ten', 'Tên lỗi', 'text', true], ['thu_tu', 'Thứ tự', 'number'], ['hoat_dong', 'Đang dùng', 'bool']] });
 
   box.innerHTML = `<section class="card"><div class="card-head"><div class="t-h2" data-title></div>
     <div class="nn-row" style="padding:0"><div class="nn-input-wrap nn-input-md">${icon('search', 18, 'muted')}<input class="nn-input" placeholder="Tìm lỗi…" data-kw value="${esc(st.kw)}"></div>
@@ -556,27 +563,29 @@ function loiSp(box, refresh) {
     <p class="t-cap">Mỗi sản phẩm có bộ lỗi riêng (ví dụ yến chai: lỗi nắp, lỗi chiết, lỗi tem…). Khi ghi phiếu, người ghi chọn lỗi trong danh sách của sản phẩm đang chạy rồi nhập số lượng;
       tổng các lỗi là sản lượng lỗi của phiếu. “${esc(LOI_KHAC.ten)}” luôn có sẵn nên không cần khai — chọn nó thì bắt buộc ghi chú.</p></section>`;
   const fSp = comboField({ label: 'Sản phẩm', value: st.sp, size: 'md', allowClear: false, options: spOpts(), onChange: (v) => { st.sp = v; draw(); } });
+  const fGd = selectField({ label: 'Giai đoạn', size: 'md', value: st.gd || '', placeholder: 'Tất cả giai đoạn', options: Object.entries(GIAI_DOAN).map(([k, v]) => ({ value: k, label: `${v.label} (${v.bp})` })), onChange: (v) => { st.gd = v; draw(); } });
   $('[data-f]', box).append(...scopeFields(st.sc, () => {
     if (!prods().some((p) => p.id === st.sp)) st.sp = prods()[0]?.id || '';
     fSp.setOptions(spOpts(), st.sp); draw();
-  }), fSp);
+  }), fSp, fGd);
   function draw() {
     const sp = S.cat.byId.san_pham[st.sp];
     const all = allOf();
-    const rows = all.filter((r) => !st.kw || noAccent(`${r.ma || ''} ${r.ten}`).includes(st.kw));
+    const rows = all.filter((r) => (!st.gd || (r.giai_doan || 'san_xuat') === st.gd) && (!st.kw || noAccent(`${r.ma || ''} ${r.ten}`).includes(st.kw)))
+      .sort((a, b) => Object.keys(GIAI_DOAN).indexOf(a.giai_doan || 'san_xuat') - Object.keys(GIAI_DOAN).indexOf(b.giai_doan || 'san_xuat'));
     $('[data-title]', box).textContent = sp ? `${sp.ten} · ${rows.length === all.length ? `${all.length} lỗi` : `${rows.length} / ${all.length} lỗi`}` : 'Lỗi sản phẩm';
     $('[data-tb]', box).innerHTML = !sp ? `<div class="empty">${ofNm('san_pham').length ? 'Không có sản phẩm nào khớp bộ lọc' : 'Chưa có sản phẩm — thêm ở tab Sản phẩm'}</div>`
-      : `<div class="nn-table-wrap"><table class="nn-table"><thead><tr><th>Mã</th><th>Tên lỗi</th><th>Trạng thái</th><th></th></tr></thead><tbody>
-      ${rows.map((r) => `<tr><td class="nn-mono">${esc(r.ma || '')}</td><td class="wrap">${esc(r.ten)}</td><td>${yes(r.hoat_dong)}</td>
+      : `<div class="nn-table-wrap"><table class="nn-table"><thead><tr><th>Giai đoạn</th><th>Mã</th><th>Tên lỗi</th><th>Trạng thái</th><th></th></tr></thead><tbody>
+      ${rows.map((r) => `<tr><td><span class="chip dept">${esc(GIAI_DOAN[r.giai_doan || 'san_xuat'].label)}</span></td><td class="nn-mono">${esc(r.ma || '')}</td><td class="wrap">${esc(r.ten)}</td><td>${yes(r.hoat_dong)}</td>
         <td style="white-space:nowrap"><button class="nn-btn nn-btn-ghost nn-btn-sm" data-edit="${r.id}">${icon('edit', 14)}Sửa</button>
         <button class="nn-btn nn-btn-ghost nn-btn-sm" data-dellsp="${r.id}" aria-label="Xóa">${icon('trash', 14)}</button></td></tr>`).join('')
-        || `<tr><td colspan="4" class="muted">${st.kw ? 'Không có lỗi nào khớp' : 'Chưa khai lỗi nào — phiếu chỉ có “Lỗi khác”'}</td></tr>`}</tbody></table></div>`;
+        || `<tr><td colspan="5" class="muted">${st.kw || st.gd ? 'Không có lỗi nào khớp' : 'Chưa khai lỗi nào — báo cáo giao ca chỉ có “Lỗi khác”'}</td></tr>`}</tbody></table></div>`;
   }
   draw();
   $('[data-kw]', box).oninput = (e) => { st.kw = noAccent(e.target.value); draw(); };
   box.onclick = async (e) => {
     if (e.target.closest('[data-clearf]')) return;
-    if (e.target.closest('[data-add]')) { if (!st.sp) return toast('Chọn sản phẩm trước', 'warning'); return editRow(cfg(), { san_pham_id: st.sp, hoat_dong: true, thu_tu: allOf().length + 1 }, refresh, 'loi_san_pham'); }
+    if (e.target.closest('[data-add]')) { if (!st.sp) return toast('Chọn sản phẩm trước', 'warning'); return editRow(cfg(), { san_pham_id: st.sp, giai_doan: st.gd || 'san_xuat', hoat_dong: true, thu_tu: allOf().length + 1 }, refresh, 'loi_san_pham'); }
     const ed = e.target.closest('[data-edit]'); if (ed) return editRow(cfg(), allOf().find((r) => r.id === ed.dataset.edit), refresh, 'loi_san_pham');
     const dl = e.target.closest('[data-dellsp]'); if (dl) return delRow(cfg(), allOf().find((r) => r.id === dl.dataset.dellsp), refresh, 'loi_san_pham');
     if (e.target.closest('[data-copy]')) return copyDefects();
@@ -596,7 +605,7 @@ function loiSp(box, refresh) {
     ok.onclick = async () => {
       if (!src) return toast('Chọn sản phẩm nguồn', 'warning');
       const cu = allOf();
-      const rows = cat.loiSp(src, true).map((l) => ({ san_pham_id: st.sp, ma: l.ma, ten: l.ten, thu_tu: l.thu_tu, hoat_dong: l.hoat_dong }));
+      const rows = cat.loiSp(src, true).map((l) => ({ san_pham_id: st.sp, giai_doan: l.giai_doan || 'san_xuat', ma: l.ma, ten: l.ten, thu_tu: l.thu_tu, hoat_dong: l.hoat_dong }));
       if (cu.length && !(await confirmBox(`Xóa ${cu.length} lỗi của sản phẩm này và thay bằng ${rows.length} lỗi? Phiếu đã ghi vẫn giữ tên lỗi cũ.`, { ok: 'Xóa và thay', danger: true, title: 'Thay bộ lỗi sản phẩm' }))) return;
       const { error } = await sb.from('loi_san_pham').insert(rows);           // chép trước, xóa sau
       if (error) return toast(errText(error), 'danger');
