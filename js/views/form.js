@@ -12,12 +12,12 @@ import {
 import { go, drawHeader } from '../app.js';
 import { openFaultUpdate, shareZalo } from './faults.js';
 
-export async function render(main, { route, params }) {
+export async function render(main, { route, params, q = {} }) {
   if (route === 'phieu') {
     if (params[1] === 'sua') return editServer(main, params[0]);
     return detail(main, params[0]);
   }
-  if (params[0] === 'moi') return form(main, newDraft());
+  if (params[0] === 'moi') { const d = newDraft(); if (q.bp && cat.boPhan().some((b) => b.id === q.bp)) d.bo_phan_id = q.bp; return form(main, d); }
   if (params[0] === 'nhap') {
     let d = drafts.get(params[1]);
     const q = queue.all().find((x) => x.id === params[1]);
@@ -25,17 +25,17 @@ export async function render(main, { route, params }) {
     if (!d) { toast('Không tìm thấy phiếu nháp', 'warning'); return go('#/ghi-phieu'); }
     return form(main, d);
   }
-  return hub(main);
+  return hub(main, q.bp);
 }
 
 const targetLabel = (d) => (d.multi ? `Ghi chung ${(d.muc || []).length} dây chuyền / máy` : d.day_chuyen_id ? cat.name('day_chuyen', d.day_chuyen_id) || 'Dây chuyền' : d.may_id ? cat.mayLabel(d.may_id) : 'Chưa chọn máy / dây chuyền');
 
 // ================= DANH SÁCH NHÁP & CHỜ GỬI =================
-function hub(main) {
+function hub(main, bp) {
   const ds = drafts.list(), qs = queue.all();
   main.innerHTML = `<div class="page-head"><div><div class="t-page">Ghi phiếu</div>
     <div class="muted">Phiếu ghi dở được tự lưu theo tài khoản — thoát app vẫn còn</div></div>
-    ${can.ghiPhieu() ? `<a class="nn-btn nn-btn-primary nn-btn-lg" href="#/ghi-phieu/moi">${icon('plus', 20)}Tạo phiếu mới</a>` : ''}</div>
+    ${can.ghiPhieu() ? `<a class="nn-btn nn-btn-primary nn-btn-lg" href="#/ghi-phieu/moi${bp ? `?bp=${bp}` : ''}">${icon('plus', 20)}Tạo phiếu mới</a>` : ''}</div>
     ${qs.length ? `<section class="card section"><div class="card-head"><div class="t-h2">Chờ gửi lên máy chủ (${qs.length})</div>
       <button class="nn-btn nn-btn-secondary nn-btn-md" data-retry>${icon('sync', 18)}Gửi lại</button></div>
       <div class="list-cards">${qs.map((q) => itemCard(q, true)).join('')}</div></section>` : ''}

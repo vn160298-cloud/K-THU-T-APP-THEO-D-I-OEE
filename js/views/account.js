@@ -5,16 +5,15 @@ import { lsGet, lsSet, queue, drafts } from '../store.js';
 import { clearCalc } from '../data.js';
 import { esc, icon, VAI_TRO } from '../lib.js';
 import { el, $, toast, inputField, selectField, segmented, confirmBox } from '../ui.js';
-import { drawHeader } from '../app.js';
+import { drawHeader, navThem } from '../app.js';
 
 export async function render(main, { route }) {
   const p = S.profile;
-  const links = [
-    ['lich', 'cal', 'Lịch tháng'], ['danh-sach', 'list', 'Danh sách phiếu'], ['bao-cao', 'print', 'Báo cáo'],
-    can.admin() && ['danh-muc', 'gear', 'Danh mục'], can.admin() && ['nhap-du-lieu', 'upload', 'Nhập dữ liệu cũ'],
-  ].filter(Boolean);
+  // v1.10: lấy đúng các mục của menu (trước đây danh sách cố định nên thiếu Báo cáo giao ca, Góp ý, Quản trị…)
+  const items = navThem().filter((x, i, a) => !x.sep || (a[i + 1] && !a[i + 1].sep));
   main.innerHTML = `${route === 'them' ? `<div class="page-head"><div class="t-page">Thêm</div></div>
-    <section class="list-cards section">${links.map(([r, i, t]) => `<a class="lc" href="#/${r}" style="flex-direction:row;align-items:center;text-decoration:none;color:inherit">${icon(i, 22)}<b style="flex:1">${t}</b>${icon('chevR', 18)}</a>`).join('')}</section>` : ''}
+    <section class="list-cards section">${items.map((x) => (x.sep ? `<div class="t-h3" style="margin:8px 0 0">${esc(x.sep)}</div>`
+      : `<a class="lc" href="#/${x.r}${x.bp ? `?bp=${x.bp}` : ''}" style="flex-direction:row;align-items:center;text-decoration:none;color:inherit">${icon(x.i, 22)}<b style="flex:1">${esc(x.t)}</b>${icon('chevR', 18)}</a>`)).join('')}</section>` : ''}
     <div class="page-head"><div class="t-page">Tài khoản</div></div>
     <section class="card section"><div class="nn-table-wrap"><table class="nn-table"><tbody>
       <tr><th>Họ tên</th><td>${esc(p.ho_ten)}</td></tr><tr><th>Mã nhân viên</th><td class="nn-mono">${esc(p.ma_nv)}</td></tr>

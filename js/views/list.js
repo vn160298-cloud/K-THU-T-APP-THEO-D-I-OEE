@@ -6,8 +6,8 @@ import { $, rangeField, selectField, comboField } from '../ui.js';
 import { go } from '../app.js';
 import { offlineNote } from './today.js';
 
-export async function render(main) {
-  const st = { from: addDays(today(), -6), to: today(), bp: '', target: '', tt: '' };
+export async function render(main, { q = {} } = {}) {
+  const st = { from: addDays(today(), -6), to: today(), bp: q.bp || '', target: '', tt: '' };
   main.innerHTML = `<div class="page-head"><div><div class="t-page">Danh sách phiếu</div><div class="muted" data-sub></div></div></div>
     <div class="filters" data-f></div><div data-body></div>`;
   const targets = [
@@ -16,7 +16,7 @@ export async function render(main) {
   ];
   $('[data-f]', main).append(
     rangeField({ from: st.from, to: st.to, onChange: (a, b) => { st.from = a; st.to = b; load(); } }),
-    selectField({ label: 'Bộ phận', size: 'md', placeholder: 'Tất cả', options: cat.boPhan().map((b) => ({ value: b.id, label: b.ten })), onChange: (v) => { st.bp = v; draw(); } }),
+    selectField({ label: 'Bộ phận', size: 'md', placeholder: 'Tất cả', value: st.bp, options: cat.boPhan().map((b) => ({ value: b.id, label: b.ten })), onChange: (v) => { st.bp = v; draw(); } }),
     comboField({ label: 'Dây chuyền / Máy', size: 'md', placeholder: 'Tất cả', options: targets, onChange: (v) => { st.target = v; draw(); } }),
     selectField({ label: 'Trạng thái', size: 'md', placeholder: 'Tất cả', options: ['da_gui', 'da_xac_nhan'].map((k) => ({ value: k, label: TRANG_THAI_PHIEU[k].label })), onChange: (v) => { st.tt = v; draw(); } }),
   );
