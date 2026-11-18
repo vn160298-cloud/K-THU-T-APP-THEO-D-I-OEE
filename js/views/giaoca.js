@@ -56,9 +56,11 @@ async function list(main) {
 const COLS = {
   ns_sx: [['nd', 'Nội dung / sản phẩm', 220], ['ke_hoach', 'SL kế hoạch', 90, 'num'], ['hoan_thanh', 'SL hoàn thành', 90, 'num'], ['con_lai', 'SL còn lại', 80, 'auto']],
   // v1.8: mã thành phẩm theo danh mục Quy cách đóng gói (file QUI CÁCH ĐÓNG GÓI); ngày SX mặc định = ngày đóng gói
-  ns_dg: [['ca_dg', 'Ca đóng gói', 70, 'auto'], ['ngay_dg', 'Ngày đóng gói', 90, 'auto'], ['ngay_sx', 'Ngày sản xuất', 130, 'date'], ['ma_tp', 'Mã sản phẩm', 170, 'sel:tp'],
-    ['ten_tp', 'Tên sản phẩm', 170, 'auto'], ['ma_lo', 'Mã lô', 70], ['stt_xe', 'STT xe SX', 60, 'num'], ['kip_sx', 'Kíp SX', 90, 'sel:kip'], ['quy_cach', 'Quy cách đóng gói', 140, 'auto'],
-    ['thung', 'Thùng', 70, 'num'], ['le', 'Lẻ', 60, 'num'], ['tong_sku', 'Tổng SKU', 80, 'auto'], ['tong_chai', 'Tổng chai/hũ', 90, 'auto'], ['nha_may', 'Nhà máy', 60, 'auto'], ['tcb', 'TCB', 90]],
+  // v1.9: Ca / Ngày đóng gói / Nhà máy lấy theo báo cáo; Tên SP = tên BTP trong Quy cách (bỏ chữ "BTP"), Mã SP tự theo tên;
+  // Quy cách = chọn tên thành phẩm của sản phẩm đó; Tổng SKU = Thùng × số TP / thùng + Lẻ (lẻ = số thành phẩm); Tổng số lượng = SKU × số BTP / TP
+  ns_dg: [['ca_dg', 'Ca đóng gói', 60, 'auto'], ['ngay_dg', 'Ngày đóng gói', 90, 'auto'], ['ngay_sx', 'Ngày sản xuất', 130, 'date'], ['ma_sp_hien', 'Mã sản phẩm', 90, 'auto'],
+    ['ma_sp', 'Tên sản phẩm', 190, 'sel:btp'], ['ma_lo', 'Mã lô', 70], ['stt_xe', 'STT xe SX', 70, 'sel:stt'], ['kip_sx', 'Kíp SX', 90, 'sel:kip'], ['ma_tp', 'Quy cách đóng gói', 210, 'sel:tpsp'],
+    ['thung', 'Thùng', 70, 'num'], ['le', 'Lẻ', 60, 'num'], ['tong_sku', 'Tổng SKU', 80, 'auto'], ['tong_chai', 'Tổng số lượng', 90, 'auto'], ['nha_may', 'Nhà máy', 100, 'auto']],
   // v1.8: lỗi sản phẩm (chuyển từ phiếu sang) — mỗi giai đoạn 1 bảng; tên lỗi chọn trong danh mục hoặc gõ tay
   cl_sx: [['sp', 'Sản phẩm', 170, 'sel:sp'], ['loi', 'Lỗi', 200, 'list:loi'], ['sl', 'SL lỗi', 80, 'num'], ['ghi_chu', 'Ghi chú', 160]],
   cl_dg: [['sp', 'Sản phẩm', 170, 'sel:sp'], ['ngay_sx', 'Ngày SX', 130, 'date'], ['loi', 'Lỗi', 200, 'list:loi'], ['sl', 'SL lỗi', 80, 'num'], ['tong_kiem', 'Tổng kiểm', 80, 'num'], ['kip_sx', 'Kíp SX', 90, 'sel:kip'], ['ghi_chu', 'Ghi chú', 160]],
@@ -110,6 +112,7 @@ async function editor(main, id) {
   // v1.8: lỗi sản phẩm tách 2 bảng theo giai đoạn (dòng cũ chưa có giai đoạn -> bảng "trong quá trình")
   const splitCL = () => { const [a, b] = gdOf(cat.laDongGoi(g.bo_phan_id)); g.loi1 = (g.chat_luong || []).filter((r) => r.gd === a); g.loi2 = (g.chat_luong || []).filter((r) => r.gd !== a).map((r) => ({ ...r, gd: b })); };
   splitCL();
+  (g.nang_suat || []).forEach((r) => { if (!r.ma_sp && r.ma_tp) r.ma_sp = tpOf(r.ma_tp)?.ma_btp || ''; });
   const nm = g.nha_may_id || S.nm;
   const canEdit = can.giaoCa() && (!id || g.trang_thai === 'nhap');
   const logs = id ? ((await sb.from('nhat_ky').select('*').eq('phieu_id', id).order('luc', { ascending: false }).limit(100)).data || []) : [];
@@ -125,9 +128,23 @@ async function editor(main, id) {
     qc: () => qcList().map((q) => [q.ten, `${q.ten} (${+q.sku_thung}×${+q.chai_sku})`]),
     ns: () => nsList().map((n) => [n.id, `${n.ho_ten} · ${n.ma_nv}`]),
     tp: () => (S.cat.quy_cach_tp || []).filter((q) => q.hoat_dong).map((q) => [q.ma_tp, `${q.ma_tp} · ${q.ten_tp}`]),
+    btp: () => { const all = btpList(); return [...all.filter(([m]) => spCa.has(m)).map(([m, t]) => [m, `★ ${t}`]), ...all.filter(([m]) => !spCa.has(m))]; },
+    stt: () => Array.from({ length: 100 }, (_, i) => [String(i + 1), String(i + 1)]),
+    tpsp: (r) => (S.cat.quy_cach_tp || []).filter((q) => q.hoat_dong && (!r?.ma_sp || q.ma_btp === r.ma_sp)).map((q) => [q.ma_tp, q.ten_tp]),
     vang: () => Object.entries(VANG),
   };
   const tpOf = (ma) => (S.cat.quy_cach_tp || []).find((q) => q.ma_tp === ma);
+  /** Sản phẩm (BTP) trong Quy cách đóng gói: [mã, tên bỏ chữ "BTP"] */
+  const btpName = (ma) => { const q = (S.cat.quy_cach_tp || []).find((x) => x.ma_btp === ma); return q ? String(q.ten_btp || '').replace(/^BTP\s+/i, '') : cat.name('san_pham', S.cat.san_pham.find((x) => x.ma === ma)?.id) || ma; };
+  const btpList = () => [...new Set((S.cat.quy_cach_tp || []).filter((q) => q.hoat_dong && q.ma_btp).map((q) => q.ma_btp))].map((m) => [m, btpName(m)]).sort((a, b) => a[1].localeCompare(b[1], 'vi'));
+  // Sản phẩm đã ghi trong phiếu ghi nhận vận hành của ngày + ca + bộ phận này -> hiện lên đầu danh sách (★)
+  let spCa = new Set();
+  async function napSpCa() {
+    try {
+      const rows = g.ngay && g.ca_id ? await loadCalc(g.ngay, g.ngay) : [];
+      spCa = new Set(rows.filter(({ p }) => p.ca_id === g.ca_id && p.bo_phan_id === g.bo_phan_id).map(({ p }) => S.cat.byId.san_pham[p.san_pham_id]?.ma).filter(Boolean));
+    } catch { spCa = new Set(); }
+  }
   /** Danh sách gõ nhanh (datalist): lỗi theo giai đoạn của bảng, lý do tăng ca */
   const LISTS = {
     loi: (gd) => [...new Set([...(S.cat.loi_san_pham || []).filter((l) => l.hoat_dong && (l.giai_doan || 'san_xuat') === gd
@@ -141,11 +158,12 @@ async function editor(main, id) {
     ca_dg: () => cat.name('ca', g.ca_id).replace(/^Ca\s*/i, ''),
     ngay_dg: () => (g.ngay ? fmtDate(g.ngay) : ''),
     ten_tp: (r) => tpOf(r.ma_tp)?.ten_tp || '',
+    ma_sp_hien: (r) => r.ma_sp || tpOf(r.ma_tp)?.ma_btp || '',
     quy_cach: (r) => { const q = tpOf(r.ma_tp); return q ? [q.quy_cach_dong, q.quy_cach_thung].filter(Boolean).join(' · ') : ''; },
     // Tổng SKU (thành phẩm) = Thùng × số TP / thùng + Lẻ; Tổng chai/hũ = SKU × số BTP / 1 TP
     tong_sku: (r) => { const q = tpOf(r.ma_tp); return q && (r.thung != null || r.le != null) ? (+r.thung || 0) * (+q.sl_tp_thung || 0) + (+r.le || 0) : null; },
     tong_chai: (r) => { const q = tpOf(r.ma_tp); const sku = AUTO.tong_sku(r); return q && sku != null ? sku * (+q.sl_btp_tp || 1) : null; },
-    nha_may: () => maNM(),
+    nha_may: () => cat.name('nha_may', nm),
   };
   const dinhBien = () => {
     const ds = (S.cat.dinh_bien || []).filter((d) => d.hoat_dong && d.bo_phan_id === g.bo_phan_id && d.ca_id === g.ca_id);
@@ -182,11 +200,11 @@ async function editor(main, id) {
     // --- đầu phiếu
     const head = $('[data-head]', main);
     head.append(
-      dateField({ label: 'Ngày', value: g.ngay, req: true, onChange: (v) => { g.ngay = v; build(); } }),
-      selectField({ label: 'Ca', value: g.ca_id, req: true, placeholder: '— Chọn ca —', options: cat.ca(g.bo_phan_id).map((c) => ({ value: c.id, label: `${c.ten} (${hm(c.gio_bd)}–${hm(c.gio_kt)})` })), onChange: (v) => { g.ca_id = v; build(); } }),
+      dateField({ label: 'Ngày', value: g.ngay, req: true, onChange: async (v) => { g.ngay = v; await napSpCa(); build(); } }),
+      selectField({ label: 'Ca', value: g.ca_id, req: true, placeholder: '— Chọn ca —', options: cat.ca(g.bo_phan_id).map((c) => ({ value: c.id, label: `${c.ten} (${hm(c.gio_bd)}–${hm(c.gio_kt)})` })), onChange: async (v) => { g.ca_id = v; await napSpCa(); build(); } }),
       selectField({ label: 'Kíp', value: g.kip_id || '', placeholder: '— Chọn kíp —', options: cat.kip(nm).map((k) => ({ value: k.id, label: k.ten })), onChange: (v) => { g.kip_id = v; build(); } }),
       selectField({ label: 'Bộ phận', value: g.bo_phan_id, req: true, options: cat.boPhan().map((b) => ({ value: b.id, label: b.ten })),
-        onChange: (v) => { if (v === g.bo_phan_id) return; g.bo_phan_id = v; g.nang_suat = []; g.chat_luong = []; splitCL(); build(); } }),
+        onChange: (v) => { if (v === g.bo_phan_id) return; g.bo_phan_id = v; g.nang_suat = []; g.chat_luong = []; splitCL(); napSpCa().then(build); } }),
       el(`<div class="nn-field"><span class="nn-label">Nhà máy</span><span class="chip dept" style="height:40px">${esc(cat.name('nha_may', nm))}</span></div>`),
     );
     if (canEdit) head.append(el(`<div class="nn-field span-2"><button class="nn-btn nn-btn-secondary nn-btn-md" data-fill>${icon('sync', 18)}Lấy số từ phiếu ghi nhận vận hành của ca này</button>
@@ -304,7 +322,7 @@ async function editor(main, id) {
     if (t === 'num' || t === 'dec') return `<input class="nn-input" ${st} data-r="${i}" data-c="${c}" data-t="${t}" inputmode="${t === 'num' ? 'numeric' : 'decimal'}" value="${esc(r[c] != null ? fmtNum(r[c], t === 'dec' ? 1 : 0) : '')}" ${dis}>`;
     if (t === 'date') return `<input class="nn-input" type="date" ${st} data-r="${i}" data-c="${c}" value="${esc(r[c] || '')}" ${dis}>`;
     if (t.startsWith('sel:')) {
-      const opts = SEL[t.slice(4)]();
+      const opts = SEL[t.slice(4)](r);
       const cur = r[c] ?? '';
       return `<select class="nn-input" ${st} data-r="${i}" data-c="${c}" ${dis}><option value="">—</option>${cur && !opts.some(([v]) => v === cur) ? `<option value="${esc(cur)}" selected>${esc(t === 'sel:ns' ? cat.person(cur) || cur : cur)}</option>` : ''}
         ${opts.map(([v, l]) => `<option value="${esc(v)}" ${v === cur ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
@@ -328,15 +346,24 @@ async function editor(main, id) {
     $$('textarea.gc-ta', box).forEach(grow);
     $$('[data-t="num"]', box).forEach((x) => bindNum(x, 'int'));
     const paintAuto = (i) => { for (const [c, , , t] of cols) if (t === 'auto') { const a = box.querySelector(`[data-auto="${i}:${c}"]`); const v = AUTO[c]?.(rows[i]); if (a) a.textContent = v == null || v === '' ? '—' : typeof v === 'number' ? fmtNum(v) : v; } };
-    const upd = (x) => {
+    const upd = (x, e) => {
       const i = +x.dataset.r, c = x.dataset.c, t = x.dataset.t;
       rows[i][c] = t === 'num' ? toInt(x.value) : t === 'dec' ? toNum(x.value) : x.value;
+      if (k === 'ns_dg' && (c === 'ma_sp' || c === 'ngay_sx') && e?.type === 'change') {
+        const r = rows[i];
+        if (c === 'ma_sp') {
+          if (r.ma_tp && tpOf(r.ma_tp)?.ma_btp !== r.ma_sp) r.ma_tp = '';
+          const ds = SEL.tpsp(r); if (!r.ma_tp && ds.length === 1) r.ma_tp = ds[0][0];
+        }
+        if (!r.ma_lo) { const tr = rows.slice(0, i).reverse().find((y) => y.ma_sp === r.ma_sp && y.ngay_sx === r.ngay_sx && y.ma_lo); if (tr) r.ma_lo = tr.ma_lo; }
+        return tbl(key);
+      }
       if (x.tagName === 'TEXTAREA') grow(x);
       paintAuto(i); tong(key);
       if (key === 'vg') paintCNref();
     };
     box.oninput = (e) => { const x = e.target.closest('[data-r]'); if (x) upd(x); };
-    box.onchange = (e) => { const x = e.target.closest('[data-r]'); if (x) upd(x); };
+    box.onchange = (e) => { const x = e.target.closest('[data-r]'); if (x) upd(x, e); };
     tong(key);
   }
 
@@ -355,12 +382,14 @@ async function editor(main, id) {
       clean(cn.tang_ca).forEach((r, i) => { if (!r.ns || !(r.gio > 0)) errs.push(`Tăng ca dòng ${i + 1}: chọn người và nhập số giờ`); });
       clean(cn.vang_ds).forEach((r, i) => { if (!r.ns || !r.loai) errs.push(`Người vắng dòng ${i + 1}: chọn người và hình thức`); else if (r.loai === 'gio' && !(r.so_gio > 0)) errs.push(`Người vắng dòng ${i + 1}: nhập số giờ nghỉ`); });
       [...clean(g.loi1), ...clean(g.loi2)].forEach((r) => { if (isLoiKhac(r.loi) && !String(r.ghi_chu || '').trim()) errs.push(`Lỗi "${r.loi}" phải ghi chú`); if (!(r.sl > 0)) errs.push(`Lỗi "${r.loi || '?'}": chưa nhập SL`); });
-      if (dg) clean(g.nang_suat).forEach((r, i) => { if (r.ngay_sx && g.ngay && r.ngay_sx > g.ngay) errs.push(`Năng suất dòng ${i + 1}: ngày SX sau ngày đóng gói`); if (!r.ma_tp) errs.push(`Năng suất dòng ${i + 1}: chưa chọn mã sản phẩm`); });
+      if (dg) clean(g.nang_suat).forEach((r, i) => { if (r.ngay_sx && g.ngay && r.ngay_sx > g.ngay) errs.push(`Năng suất dòng ${i + 1}: ngày SX sau ngày đóng gói`);
+        if (!AUTO.ma_sp_hien(r)) errs.push(`Năng suất dòng ${i + 1}: chưa chọn tên sản phẩm`); if (!r.ma_tp) errs.push(`Năng suất dòng ${i + 1}: chưa chọn quy cách đóng gói`); });
       if (errs.length) return toast(errs.slice(0, 4).join(' · '), 'danger', 'Chưa gửi được');
       if (!(await confirmBox('Gửi báo cáo giao ca? Sau khi gửi, báo cáo bị khóa — muốn sửa phải nhờ quản lý / admin mở khóa.', { ok: 'Gửi báo cáo' }))) return;
     }
     // Lưu giá trị tự tính vào dòng để xuất / in đúng như lúc gửi
-    const ns = clean(g.nang_suat).map((r) => (dg ? { ...r, ca_dg: AUTO.ca_dg(), ngay_dg: AUTO.ngay_dg(), ten_tp: AUTO.ten_tp(r), quy_cach: AUTO.quy_cach(r), tong_sku: AUTO.tong_sku(r), tong_chai: AUTO.tong_chai(r), nha_may: maNM() }
+    const ns = clean(g.nang_suat).map((r) => (dg ? { ...r, ca_dg: AUTO.ca_dg(), ngay_dg: AUTO.ngay_dg(), ma_sp: AUTO.ma_sp_hien(r), ten_sp: btpName(AUTO.ma_sp_hien(r)), ten_tp: AUTO.ten_tp(r),
+      quy_cach: AUTO.quy_cach(r), tong_sku: AUTO.tong_sku(r), tong_chai: AUTO.tong_chai(r), nha_may: cat.name('nha_may', nm) }
       : { ...r, con_lai: AUTO.con_lai(r) }));
     const tc = clean(cn.tang_ca);
     const [ga, gb] = gdOf(dg);
@@ -379,7 +408,7 @@ async function editor(main, id) {
     const rm = t.closest('[data-rm]');
     if (rm) { const [k, i] = rm.dataset.rm.split(':'); rowsOf(k).splice(+i, 1); build(); return; }
     const dup = t.closest('[data-dup]');
-    if (dup) { const i = +dup.dataset.dup, r = g.nang_suat[i]; g.nang_suat.splice(i + 1, 0, { ...r, stt_xe: r.stt_xe != null ? r.stt_xe + 1 : null }); build(); return; }
+    if (dup) { const i = +dup.dataset.dup, r = g.nang_suat[i]; g.nang_suat.splice(i + 1, 0, { ...r, stt_xe: r.stt_xe ? String(Math.min(100, +r.stt_xe + 1)) : r.stt_xe }); build(); return; }
     try {
       if (t.closest('[data-fill]')) {
         if (!g.ca_id) return toast('Chọn ca trước', 'warning');
@@ -398,6 +427,7 @@ async function editor(main, id) {
       } else if (t.closest('[data-print]')) window.print();
     } catch (err) { toast(errText(err), 'danger'); }
   };
+  await napSpCa();
   build();
 }
 

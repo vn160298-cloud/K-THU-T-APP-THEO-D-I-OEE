@@ -68,7 +68,7 @@ function newDraft() {
     id: uuid(), ngay: today(), may_id: '', day_chuyen_id: '', ca_id: '', san_pham_id: '', toc_do_dm: null,
     nguoi_van_hanh_id: me.vai_tro === 'van_hanh' ? me.id : '', to_truong_id: me.vai_tro === 'to_truong' ? me.id : '', ky_thuat_id: '',
     gio_bd: '', gio_kt: '', nghi_phut: 0, tong_sl: null, sl_loi_kd: 0, sl_loi_qt: 0, ghi_chu: '',
-    kip_id: '', sl_ke_hoach: null, ngay_sx: '', lo: '', so_thung: null, kip_sx_id: '', so_phieu_kho: '',
+    kip_id: '', sl_ke_hoach: null, ngay_sx: '', lo: '', so_thung: null, kip_sx_id: '', so_phieu_kho: '', bo_phan_id: me.bo_phan_id || '',
     ke_hoach: [], dung_may: [], bo_may: [], loi_sp: [], _kv: '', created_at: new Date().toISOString(),
   };
 }
@@ -84,7 +84,7 @@ const toDraft = (p) => ({
   nguoi_van_hanh_id: p.nguoi_van_hanh_id || '', to_truong_id: p.to_truong_id || '', ky_thuat_id: p.ky_thuat_id || '',
   gio_bd: hm(p.gio_bd), gio_kt: hm(p.gio_kt), nghi_phut: p.nghi_phut, tong_sl: p.tong_sl, sl_loi_kd: p.sl_loi_kd, sl_loi_qt: p.sl_loi_qt,
   ghi_chu: p.ghi_chu || '', created_at: p.created_at, _edit: true, _trang_thai: p.trang_thai,
-  kip_id: p.kip_id || '', sl_ke_hoach: p.sl_ke_hoach ?? null, ngay_sx: p.ngay_sx || '', lo: p.lo || '', so_thung: p.so_thung ?? null,
+  kip_id: p.kip_id || '', bo_phan_id: p.bo_phan_id || '', sl_ke_hoach: p.sl_ke_hoach ?? null, ngay_sx: p.ngay_sx || '', lo: p.lo || '', so_thung: p.so_thung ?? null,
   kip_sx_id: p.kip_sx_id || '', so_phieu_kho: p.so_phieu_kho || '',
   ke_hoach: (p.dung_ke_hoach || []).map((k) => ({ ly_do_id: k.ly_do_id, ly_do_ten: k.ly_do_ten, gio_bd: hm(k.gio_bd), gio_kt: hm(k.gio_kt) })),
   dung_may: (p.dung_may || []).filter((s) => s.goc !== false).sort((a, b) => a.stt - b.stt).map(stopToDraft),
@@ -194,20 +194,22 @@ function form(main, d) {
   // Khu vực sản xuất: lọc danh sách dây chuyền / máy bên dưới. Để trống = tất cả khu vực.
   const kvId = () => d._kv || '';
   const mayInKv = (mayId) => !kvId() || S.cat.byId.may[mayId]?.khu_vuc_id === kvId();
+  // v1.9: lọc theo bộ phận chọn ở đầu phiếu
+  const mayInBp = (mayId) => !d.bo_phan_id || S.cat.byId.may[mayId]?.bo_phan_id === d.bo_phan_id;
   const lineInKv = (lineId) => !kvId() || cat.members(lineId).some((x) => mayInKv(x.may_id));
   const kvOptions = () => S.cat.khu_vuc.filter((k) => k.nha_may_id === S.nm && k.hoat_dong)
     .map((k) => {
-      const n = cat.may().filter((m) => m.khu_vuc_id === k.id).length;
+      const n = cat.may().filter((m) => m.khu_vuc_id === k.id && mayInBp(m.id)).length;
       return { value: k.id, label: k.ten, sub: `${n} máy` };
     }).filter((o) => o.sub !== '0 máy');
   const targetOptions = () => {
-    const lines = cat.dayChuyen().filter((l) => cat.members(l.id).length && lineInKv(l.id)).map((l) => ({
+    const lines = cat.dayChuyen().filter((l) => cat.members(l.id).length && lineInKv(l.id) && cat.members(l.id).some((x) => mayInBp(x.may_id))).map((l) => ({
       value: `dc:${l.id}`, label: l.ten, sub: cat.members(l.id).map((x) => cat.name('may', x.may_id, 'ma')).join(' → '), group: 'Dây chuyền' }));
-    const singles = [...cat.mayDon()].filter((m) => mayInKv(m.id)).sort((a, b) => kvOf(a).localeCompare(kvOf(b), 'vi')).map((m) => ({
+    const singles = [...cat.mayDon()].filter((m) => mayInKv(m.id) && mayInBp(m.id)).sort((a, b) => kvOf(a).localeCompare(kvOf(b), 'vi')).map((m) => ({
       value: `m:${m.id}`, label: `${m.ma} · ${m.ten}`, group: `Máy đơn · ${kvOf(m)}` }));
     return [...lines, ...singles];
   };
-  const caOptions = () => cat.ca(isLine() ? null : S.cat.byId.may[d.may_id]?.bo_phan_id);
+  const caOptions = () => cat.ca((isLine() ? null : S.cat.byId.may[d.may_id]?.bo_phan_id) || d.bo_phan_id || null);
 
   const applyCa = () => {
     const c = S.cat.byId.ca[d.ca_id];
@@ -261,6 +263,17 @@ function form(main, d) {
     } else {
       g1.append(el(`<div class="nn-field"><span class="nn-label">Nhà máy</span><span class="chip dept" style="height:40px">${esc(cat.name('nha_may', S.nm))}</span></div>`));
     }
+    // v1.9: Bộ phận — các ô bên dưới (khu vực, dây chuyền / máy, ca) chỉ hiện danh sách của bộ phận này
+    g1.append(selectField({ label: 'Bộ phận', value: d.bo_phan_id || '', placeholder: 'Tất cả bộ phận', options: cat.boPhan().map((b) => ({ value: b.id, label: b.ten })),
+      onChange: (v) => {
+        d.bo_phan_id = v;
+        if (kvId() && !kvOptions().some((o) => o.value === kvId())) d._kv = '';
+        const ok = new Set(targetOptions().map((o) => o.value));
+        if (d.multi) d.muc = d.muc.filter((m) => ok.has(m.key));
+        else if (targetValue() && !ok.has(targetValue())) { d.day_chuyen_id = ''; d.may_id = ''; d.bo_may = []; d.dung_may.forEach((x) => { clearFault(x); x.may_id = ''; }); }
+        if (!caOptions().some((c) => c.id === d.ca_id)) pickDefaultCa();
+        applyPeople(); changed(); build();
+      } }));
     // v1.8: ghi chung 1 phiếu cho nhiều dây chuyền / máy chạy cùng 1 sản phẩm
     if (!d._edit || d.multi) {
       const mt = el(`<label class="nn-field span-2" style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" ${d.multi ? 'checked' : ''} ${d._edit ? 'disabled' : ''} style="width:22px;height:22px">
@@ -603,7 +616,7 @@ function form(main, d) {
   }
   async function sendMulti(btn) {
     const body = { ...d, trang_thai: $('[data-confirm]', main)?.checked ? 'da_xac_nhan' : undefined, nghi_phut: d.nghi_phut || 0 };
-    for (const k of ['loi_sp', 'multi', 'may_id', 'day_chuyen_id', 'bo_may', 'tong_sl', 'toc_do_dm']) delete body[k];
+    for (const k of ['loi_sp', 'multi', 'may_id', 'day_chuyen_id', 'bo_may', 'tong_sl', 'toc_do_dm', 'bo_phan_id']) delete body[k];
     for (const k of ['san_pham_id', 'nguoi_van_hanh_id', 'to_truong_id', 'ky_thuat_id', 'kip_id']) body[k] = body[k] || null;
     body.muc = d.muc.map((m) => ({ ...(m.key.startsWith('dc:') ? { day_chuyen_id: m.key.slice(3) } : { may_id: m.key.slice(2) }), tong_sl: m.tong_sl, sl_loi_qt: m.sl_loi_qt || 0, toc_do_dm: m.toc_do_dm, bo_may: [] }));
     body.dung_may = d.dung_may.map((x, k) => ({ ...x, stt: k + 1, nguoi_xu_ly_id: x.nguoi_xu_ly_id || null, ma_loi_id: x.ma_loi_id || null, may_id: x.may_id || null, ca_chuyen: x.ca_chuyen !== false }));
@@ -712,7 +725,7 @@ function form(main, d) {
     body.day_chuyen_id = d.day_chuyen_id || null;
     body.dung_may = d.dung_may.map((s, k) => ({ ...s, stt: k + 1, nguoi_xu_ly_id: s.nguoi_xu_ly_id || null, ma_loi_id: s.ma_loi_id || null, may_id: line ? s.may_id : undefined, ca_chuyen: line ? s.ca_chuyen !== false : undefined }));
     body.ke_hoach = d.ke_hoach.map((k) => ({ ...k, ly_do_id: k.ly_do_id || null }));
-    delete body.loi_sp; delete body.muc; delete body.multi;   // v1.8: lỗi chi tiết ghi ở Báo cáo giao ca
+    delete body.loi_sp; delete body.muc; delete body.multi; delete body.bo_phan_id;   // v1.8: lỗi chi tiết ghi ở Báo cáo giao ca
     body.sl_loi_kd = 0; body.sl_loi_qt = (+d.sl_loi_kd || 0) + (+d.sl_loi_qt || 0);
     for (const k of ['san_pham_id', 'nguoi_van_hanh_id', 'to_truong_id', 'ky_thuat_id']) body[k] = body[k] || null;
     if (line) { body.may_id = null; body.bo_may = d.bo_may.filter((id) => members().some((x) => x.may_id === id)); } else delete body.bo_may;
