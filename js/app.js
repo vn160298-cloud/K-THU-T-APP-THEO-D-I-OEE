@@ -17,6 +17,7 @@ const VIEWS = {
   'nhap-du-lieu': () => import('./views/import.js'),
   'tai-khoan': () => import('./views/account.js'),
   'giao-ca': () => import('./views/giaoca.js'),
+  'gop-y': () => import('./views/gopy.js'),
   'yeu-cau': () => import('./views/quantri.js'),
   'nhat-ky': () => import('./views/quantri.js'),
   'dung-luong': () => import('./views/quantri.js'),
@@ -40,6 +41,7 @@ const NAV = () => [
   can.admin() && { r: 'dung-luong', t: 'Dung lượng & lưu trữ', i: 'chart' },
   can.admin() && { r: 'nhap-du-lieu', t: 'Nhập dữ liệu cũ', i: 'upload' },
   { sep: 'Cá nhân' },
+  { r: 'gop-y', t: 'Góp ý app', i: 'edit' },
   { r: 'tai-khoan', t: 'Tài khoản', i: 'user' },
 ].filter(Boolean);
 
@@ -118,6 +120,17 @@ async function route() {
     cleanup = await mod.render(main, { route: r, params, q }) || null;
   } catch (e) {
     console.error(e);
+    // v1.6.1: app vừa được cập nhật trong lúc tab đang mở -> trình duyệt còn giữ file cũ trong bộ nhớ, trộn với file mới
+    // ("does not provide an export…", không tải được module). Tự tải lại trang 1 lần để lấy toàn bộ bản mới.
+    const doiBan = /does not provide an export|dynamically imported module|Importing a module script failed|error loading dynamically imported/i.test(e?.message || '');
+    let daThu = false;
+    try { daThu = Date.now() - +(sessionStorage.getItem('oee:reload') || 0) < 30000; } catch { /* */ }
+    if (doiBan && !daThu && S.online) {
+      try { sessionStorage.setItem('oee:reload', String(Date.now())); } catch { /* */ }
+      main.innerHTML = '<div class="empty">App vừa có bản mới — đang tải lại…</div>';
+      location.reload();
+      return;
+    }
     main.innerHTML = `<div class="nn-alert nn-alert-danger" role="alert"><span class="nn-alert-icon nn-tone-danger">${icon('fail', 20)}</span>
       <div class="nn-alert-body"><div class="nn-alert-title">Không mở được trang</div><div class="nn-alert-text">${esc(e.message || e)}</div></div></div>`;
   }

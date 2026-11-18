@@ -84,9 +84,9 @@ export const can = {
 // ---------- Danh mục ----------
 const TABLES = ['nha_may', 'bo_phan', 'khu_vuc', 'may', 'ma_loi', 'ly_do_ke_hoach', 'san_pham', 'toc_do', 'ca',
   'day_chuyen', 'day_chuyen_may', 'nhan_su', 'cai_dat', 'may_san_pham', 'day_chuyen_san_pham', 'toc_do_day_chuyen',
-  'day_chuyen_tong', 'phan_cong', 'loi_san_pham', 'kip', 'dinh_bien', 'quy_cach', 'ds_nhap_nhanh'];
+  'day_chuyen_tong', 'phan_cong', 'loi_san_pham', 'kip', 'dinh_bien', 'quy_cach', 'ds_nhap_nhanh', 'quy_cach_tp'];
 
-const OPTIONAL = ['day_chuyen_tong', 'phan_cong', 'loi_san_pham', 'kip', 'dinh_bien', 'quy_cach', 'ds_nhap_nhanh'];
+const OPTIONAL = ['day_chuyen_tong', 'phan_cong', 'loi_san_pham', 'kip', 'dinh_bien', 'quy_cach', 'ds_nhap_nhanh', 'quy_cach_tp'];
 
 async function fetchAll(table, build = (q) => q) {
   const out = [];
@@ -241,7 +241,7 @@ export async function fetchFaults({ from, to }) {
   return data;
 }
 
-const PHIEU_SEL = '*, dung_may(*), dung_ke_hoach(*)';
+export const PHIEU_SEL = '*, dung_may(*), dung_ke_hoach(*)';
 /** Phiếu dây chuyền: trả về tất cả phiếu con cùng nhóm. Phiếu máy đơn: mảng 1 phần tử. Không có: mảng rỗng. */
 export async function getPhieuGroup(id) {
   let { data, error } = await sb.from('phieu').select(PHIEU_SEL).eq('nhom_id', id);
@@ -260,7 +260,7 @@ export async function getPhieuGroup(id) {
   return data;
 }
 
-const rpcName = (body) => (body.day_chuyen_id ? 'luu_phieu_chuyen' : 'luu_phieu');
+const rpcName = (body) => (body.muc ? 'luu_phieu_nhieu' : body.day_chuyen_id ? 'luu_phieu_chuyen' : 'luu_phieu');
 const clean = (p) => Object.fromEntries(Object.entries(p).filter(([k]) => !k.startsWith('_')));
 
 /** Gửi phiếu: có mạng thì gửi ngay, mất mạng thì đưa vào hàng đợi */

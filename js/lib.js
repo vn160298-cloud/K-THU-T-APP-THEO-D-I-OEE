@@ -154,6 +154,13 @@ export const MUC_DO = {
   chay_tam: { label: 'Chạy tạm — chỉnh sau', ngan: 'Chỉnh sau', tone: 'warning', icon: 'hold' },
 };
 /** Giá trị ô "Tên lỗi" cho lỗi khác không khai trong danh mục (mỗi máy luôn có) */
+/** v1.8: 4 giai đoạn lỗi sản phẩm — 2 giai đoạn đầu ghi ở báo cáo giao ca Sản xuất, 2 giai đoạn sau ở Đóng gói */
+export const GIAI_DOAN = {
+  nguyen_lieu: { label: 'Lỗi nguyên liệu trước khi sản xuất', ngan: 'Nguyên liệu trước SX', bp: 'Sản xuất' },
+  san_xuat: { label: 'Lỗi trong quá trình sản xuất', ngan: 'Trong quá trình SX', bp: 'Sản xuất' },
+  qc_dau_vao: { label: 'Lỗi QC đầu vào đóng gói', ngan: 'QC đầu vào ĐG', bp: 'Đóng gói' },
+  dong_goi: { label: 'Lỗi trong quá trình đóng gói', ngan: 'Trong quá trình ĐG', bp: 'Đóng gói' },
+};
 export const LOI_KHAC = { id: 'khac', ten: 'Lỗi khác (ghi rõ ở ghi chú)' };
 
 export const badge = (tone, ic, text, size = 14) => `<span class="nn-status nn-tone-${tone}">${icon(ic, size)}${esc(text)}</span>`;
