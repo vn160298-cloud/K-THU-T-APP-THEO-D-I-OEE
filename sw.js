@@ -1,5 +1,5 @@
 // Service Worker — cho app chạy khi mất mạng. Tăng VERSION mỗi lần cập nhật app.
-const VERSION = 'oee-v1.10.1';
+const VERSION = 'oee-v1.11.0';
 const SHELL = [
   './', './index.html', './manifest.webmanifest',
   './css/nutrinest.css', './css/app.css',
