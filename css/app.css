@@ -40,6 +40,10 @@ h1, h2, h3 { margin: 0; }
   .side a.is-active { background: var(--dept-soft); color: var(--dept); font-weight: 600; }
   .side .badge-dot { position: static; margin-left: auto; }
   .side .nn-label { padding: var(--space-4) var(--space-3) var(--space-1); }
+  .side .nav-grp { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); color: var(--ink); font-size: 15px; font-weight: 600; background: none; border: 0; cursor: pointer; text-align: left; width: 100%; font-family: inherit; }
+  .side .nav-grp span { flex: 1; }
+  .side .nav-grp:hover { background: var(--surface-sunken); }
+  .side a.nav-sub { padding-left: calc(var(--space-3) + 20px); font-size: 14px; }
   .main { padding: var(--space-6) var(--space-8) var(--space-8); }
   body { font-size: 15px; line-height: 22px; }
 }
@@ -180,3 +184,9 @@ h1, h2, h3 { margin: 0; }
 .gc-tb .nn-input { min-height: 36px; }
 .gc-auto { display: inline-block; min-width: 48px; padding: 8px 4px; font-variant-numeric: tabular-nums; color: var(--ink); word-break: break-word; }
 .nn-input-wrap.ta textarea { resize: vertical; }
+
+/* v1.12: trang Thêm trên điện thoại — nhóm thu gọn */
+.nav-them .lc { flex-direction: row; align-items: center; text-decoration: none; color: inherit; gap: var(--space-3); }
+.nav-them .lc span { flex: 1; font-weight: 600; }
+.nav-them .nav-grp-lc { width: 100%; font: inherit; text-align: left; cursor: pointer; background: var(--surface-raised); }
+.nav-them .nav-sub { margin-left: var(--space-5); }
