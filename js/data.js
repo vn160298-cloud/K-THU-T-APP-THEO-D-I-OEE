@@ -13,6 +13,8 @@ export async function loadCalc(from, to, { force, nm, moThem } = {}) {
   const lastOf = {};
   const v = list.map((p) => {
     const c = calcPhieu(p, cat.caiDatOf(p.nha_may_id).nguong_dung_ngan || 5);
+    // v1.15: máy khai "Phụ trợ" trong Danh mục → Máy: không tính OEE, chỉ độ sẵn sàng / MTBF / MTTR (như phiếu tự tạo từ giao ca Kỹ thuật)
+    if (cat.cachTinh(p.may_id) === 'phu_tro') c.kt = true;
     // Phiếu con của dây chuyền: chỉ máy cuối chuyền được tính sản lượng khi cộng nhiều máy (tránh cộng trùng)
     if (p.day_chuyen_id) {
       lastOf[p.day_chuyen_id] ??= cat.lastMay(p.day_chuyen_id);
@@ -24,6 +26,22 @@ export async function loadCalc(from, to, { force, nm, moThem } = {}) {
   return v;
 }
 export const clearCalc = () => memo.clear();
+
+/**
+ * v1.15: đơn vị tính TEEP / OPE — mỗi dây chuyền chỉ tính 1 lần (phiếu máy cuối chuyền, đúng bằng OEE dây chuyền), máy đơn / máy theo mẻ tính 1 lần,
+ * bỏ máy phụ trợ. Phiếu dây chuyền không có máy cuối trong bộ lọc thì lấy 1 phiếu đại diện. Trả { rows, units: số dây chuyền + máy đơn khác nhau }.
+ */
+export function donViOEE(rows) {
+  const out = [], nhom = new Map();
+  for (const r of rows) {
+    if (r.c.kt) continue;
+    if (!r.p.nhom_id || !r.p.day_chuyen_id) { out.push(r); continue; }
+    const cu = nhom.get(r.p.nhom_id);
+    if (!cu || (r.c.demSl !== false && cu.c.demSl === false)) nhom.set(r.p.nhom_id, r);
+  }
+  out.push(...nhom.values());
+  return { rows: out, units: new Set(out.map((r) => (r.p.day_chuyen_id ? `dc:${r.p.day_chuyen_id}` : `m:${r.p.may_id}`))).size };
+}
 
 /**
  * Gộp các phiếu con của cùng 1 phiếu dây chuyền thành 1 dòng; phiếu máy đơn giữ nguyên.

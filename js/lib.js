@@ -131,6 +131,8 @@ export const icon = (name, size = 20, cls = '') =>
   `<svg class="nn-icon ${cls}" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${(P[name] || P.info).map((d) => `<path d="${d}"/>`).join('')}</svg>`;
 
 // ---------- Nhãn nghiệp vụ ----------
+// v1.15: cách tính chỉ số của máy (Danh mục → Máy)
+export const CACH_TINH = { lien_tuc: 'Liên tục (sp/phút)', theo_me: 'Theo mẻ (phút/mẻ)', phu_tro: 'Phụ trợ (không tính OEE)' };
 export const VAI_TRO = {
   van_hanh: 'Vận hành', to_truong: 'Tổ trưởng', to_pho: 'Tổ phó', ky_thuat: 'Kỹ thuật', quan_ly: 'Quản lý', admin: 'Admin',
 };

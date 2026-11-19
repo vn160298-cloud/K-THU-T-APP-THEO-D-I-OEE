@@ -56,11 +56,14 @@ export function calcPhieu(p, nguongNgan = 5) {
 
 /** Gộp nhiều kết quả calcPhieu (trọng số theo thời gian) */
 export function aggregate(list) {
-  const s = { n: list.length, ppt: 0, run: 0, pptS: 0, runS: 0, ideal: 0, goodTime: 0, tong: 0, good: 0, kd: 0, qt: 0,
-    bdCount: 0, bdMin: 0, stopCount: 0, stopLoss: 0, L: [0, 0, 0, 0, 0, 0, 0], missingSpeed: 0, invalid: 0, runKT: 0 };
+  const s = { n: list.length, nSX: 0, ppt: 0, run: 0, pptS: 0, runS: 0, ideal: 0, goodTime: 0, tong: 0, good: 0, kd: 0, qt: 0,
+    bdCount: 0, bdMin: 0, stopCount: 0, stopLoss: 0, L: [0, 0, 0, 0, 0, 0, 0], missingSpeed: 0, invalid: 0,
+    kt: { n: 0, ppt: 0, run: 0, stop: 0, bdCount: 0, bdMin: 0, stopCount: 0 } };
   for (const c of list) {
-    // v1.12: máy kỹ thuật (lò hơi, khí nén…) không có sản lượng: chỉ tính số lần dừng, MTBF, MTTR — không vào OEE, A, 6 tổn thất
-    if (c.kt) { s.runKT += c.run; s.bdCount += c.bdCount; s.bdMin += c.bdMin; s.stopCount += c.stopCount; continue; }
+    // v1.15: máy phụ trợ (lò hơi, khí nén, nước làm mềm…) không có sản lượng -> không vào OEE / 6 tổn thất.
+    // Tính riêng: Độ sẵn sàng = giờ chạy / giờ hoạt động yêu cầu, MTBF / MTTR bằng giờ chạy của chính máy phụ trợ (không cộng lẫn máy sản xuất).
+    if (c.kt) { const k = s.kt; k.n++; k.ppt += c.ppt; k.run += c.run; k.stop += c.stopLoss; k.bdCount += c.bdCount; k.bdMin += c.bdMin; k.stopCount += c.stopCount; continue; }
+    s.nSX++;
     s.ppt += c.ppt; s.run += c.run;
     if (c.demSl !== false) { s.tong += c.tong; s.good += c.good; s.kd += c.kd; s.qt += c.qt; }
     s.bdCount += c.bdCount; s.bdMin += c.bdMin; s.stopCount += c.stopCount; s.stopLoss += c.stopLoss;
@@ -74,13 +77,22 @@ export function aggregate(list) {
   s.P = s.runS > 0 ? s.ideal / s.runS : null;
   s.Q = s.ideal > 0 ? s.goodTime / s.ideal : (s.tong > 0 ? s.good / s.tong : null);
   s.OEE = s.pptS > 0 ? s.goodTime / s.pptS : null;
-  s.MTBF = s.bdCount > 0 ? (s.run + s.runKT) / s.bdCount : null;
+  // MTBF / MTTR máy sản xuất: chỉ giờ chạy + hỏng hóc của máy sản xuất
+  s.MTBF = s.bdCount > 0 ? s.run / s.bdCount : null;
   s.MTTR = s.bdCount > 0 ? s.bdMin / s.bdCount : null;
+  const k = s.kt;
+  k.A = k.ppt > 0 ? k.run / k.ppt : null;
+  k.MTBF = k.bdCount > 0 ? k.run / k.bdCount : null;
+  k.MTTR = k.bdCount > 0 ? k.bdMin / k.bdCount : null;
+  // Chỉ có máy phụ trợ (VD lọc 1 máy lò hơi): A / MTBF / MTTR / dừng lấy theo máy phụ trợ; OEE, P, Q để trống
+  if (!s.nSX && k.n) Object.assign(s, { A: k.A, MTBF: k.MTBF, MTTR: k.MTTR, bdCount: k.bdCount, bdMin: k.bdMin, stopCount: k.stopCount, stopLoss: k.stop, ppt: k.ppt, run: k.run, phuTro: true });
   return s;
 }
 
-/** TEEP = thời gian sản xuất hiệu quả / thời gian lịch (24h × số ngày × số máy) */
-export const teep = (agg, days, machines) => (days > 0 && machines > 0 ? agg.goodTime / (days * 1440 * machines) : null);
+/** TEEP = thời gian sản xuất hiệu quả / thời gian lịch (24h × số ngày × số đơn vị: mỗi dây chuyền / máy đơn tính 1 lần) */
+export const teep = (agg, days, units) => (days > 0 && units > 0 ? agg.goodTime / (days * 1440 * units) : null);
+/** v1.15: Loading = thời gian chạy kế hoạch / thời gian lịch -> TEEP ≈ OEE × Loading */
+export const loading = (agg, days, units) => (days > 0 && units > 0 ? agg.ppt / (days * 1440 * units) : null);
 
 /** Pareto lỗi: gom theo mã lỗi — chỉ các lần dừng gốc (bỏ dòng phái sinh) */
 export function pareto(stops) {

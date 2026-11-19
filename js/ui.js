@@ -181,11 +181,11 @@ export function textField({ label, value = '', placeholder = '', span = true, on
   return f;
 }
 
-export function selectField({ label, value = '', options = [], req, placeholder = '— Chọn —', onChange, size = 'lg', span }) {
+export function selectField({ label, value = '', options = [], req, placeholder = '— Chọn —', onChange, size = 'lg', span, msg }) {
   const f = wrapField(label, `<div class="nn-input-wrap nn-input-${size}"><select id="__ID__" class="nn-input">
     <option value="">${esc(placeholder)}</option>
     ${options.map((o) => `<option value="${esc(o.value)}" ${String(o.value) === String(value) ? 'selected' : ''}>${esc(o.label)}</option>`).join('')}
-    </select><span class="sel-caret">${icon('chevD', 18)}</span></div>`, { req, span });
+    </select><span class="sel-caret">${icon('chevD', 18)}</span></div>`, { req, span, msg: msg ? esc(msg) : '' });
   const s = $('select', f);
   if (onChange) s.addEventListener('change', () => onChange(s.value, f));
   f.input = s;

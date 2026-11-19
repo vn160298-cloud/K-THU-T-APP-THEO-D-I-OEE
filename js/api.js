@@ -141,6 +141,10 @@ export const cat = {
   kip: (nm = S.nm) => sortCat((S.cat.kip || []).filter((k) => k.nha_may_id === nm && k.hoat_dong)),
   /** v1.6: bộ phận Đóng gói (tên chứa "đóng gói") -> phiếu có thêm ngày SX, lô, thùng, kíp SX, số phiếu kho */
   laDongGoi: (bpId) => /đóng gói|dong goi/i.test(S.cat.byId.bo_phan[bpId]?.ten || ''),
+  /** v1.15: cách tính chỉ số của máy: lien_tuc | theo_me (phút/mẻ) | phu_tro (không tính OEE) */
+  cachTinh: (mayId) => S.cat.byId.may?.[mayId]?.cach_tinh || 'lien_tuc',
+  /** máy đơn tính theo mẻ (dây chuyền luôn tính liên tục) */
+  theoMe: (t) => !!t && !t.day_chuyen_id && !!t.may_id && cat.cachTinh(t.may_id) === 'theo_me',
   laKyThuat: (bpId) => /k[yỹ] thu[aậ]t/i.test(S.cat.byId.bo_phan[bpId]?.ten || ''),
   /** v1.12: người xử lý lần dừng: kỹ thuật + vận hành được phân công máy / dây chuyền đó ở ca đó (chưa phân công kỹ thuật -> kỹ thuật của ca).
    *  Trả về { nhom: [nhân sự], tatCa: [nhân sự] } */
