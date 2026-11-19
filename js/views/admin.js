@@ -218,6 +218,7 @@ export async function render(main, { q }) {
     }
     else if (tab === 'loi_sp') loiSp(body, show);
     else if (tab === 'hang_muc_kt') hangMucKT(body, show);
+    else if (tab === 'dinh_bien') dinhBienTab(body, () => { tab = 'nhan_su_ca'; show(); });
     else if (CFG[tab]) crud(body, () => ({ table: tab, ...CFG[tab]() }), show);
     else if (tab === 'ma_loi') maLoi(body, show);
     else if (tab === 'toc_do') tocDo(body);
@@ -919,7 +920,7 @@ function phanCong(box) {
     const c = $('[data-cur]', box);
     if (!st.ca || !st.t) { c.innerHTML = '<div class="empty">Chưa có ca hoặc dây chuyền / máy — khai báo ở các tab trước</div>'; return; }
     c.innerHTML = '<div class="form-grid" style="margin-top:12px"></div>';
-    $('.form-grid', c).append(block('to_truong', 'Tổ trưởng', ['to_truong', 'quan_ly']), block('van_hanh', 'Người vận hành', ['van_hanh', 'to_truong']), block('ky_thuat', 'Kỹ thuật', ['ky_thuat']));
+    $('.form-grid', c).append(block('to_truong', 'Tổ trưởng / Tổ phó', ['to_truong', 'to_pho', 'quan_ly']), block('van_hanh', 'Người vận hành', ['van_hanh', 'to_truong', 'to_pho']), block('ky_thuat', 'Kỹ thuật', ['ky_thuat']));
   }
 
   function drawSum() {
@@ -999,6 +1000,37 @@ function hangMucKT(box, refresh) {
 }
 
 // ---------- Cài đặt ----------
+// v1.14: Định biên = tổng số nhân sự theo ca (Danh mục → Nhân sự theo ca) của từng nhà máy + bộ phận + ca — tự đếm, không nhập tay.
+// Người khai "mọi ca" (không chọn ca) được tính vào mọi ca của bộ phận. Bộ phận chưa khai nhân sự theo ca thì dùng định biên khai tay cũ (nếu có).
+function dinhBienTab(box, moNhanSuCa) {
+  const nms = NMF ? [NMF] : can.adminTong() ? S.cat.nha_may.filter((n) => n.hoat_dong).map((n) => n.id) : [S.nm];
+  const nsc = (S.cat.nhan_su_ca || []).filter((r) => r.hoat_dong !== false);
+  const rows = [];
+  for (const nm of nms) {
+    for (const bp of sortCat(S.cat.bo_phan.filter((b) => b.hoat_dong && b.nha_may_id === nm))) {
+      const ns = nsc.filter((r) => r.nha_may_id === nm && r.bo_phan_id === bp.id);
+      const cas = sortCat(S.cat.ca.filter((c) => c.hoat_dong && c.nha_may_id === nm && (!c.bo_phan_id || c.bo_phan_id === bp.id)));
+      for (const c of cas) {
+        const rieng = ns.filter((r) => r.ca_id === c.id).length, chung = ns.filter((r) => !r.ca_id).length;
+        const cu = (S.cat.dinh_bien || []).find((d) => d.hoat_dong && d.bo_phan_id === bp.id && d.ca_id === c.id && !d.kip_id)?.so_nguoi;
+        if (!ns.length && cu == null) continue;
+        rows.push({ nm, bp, c, rieng, chung, so: ns.length ? rieng + chung : cu, cu: !ns.length });
+      }
+    }
+  }
+  box.innerHTML = `<section class="card"><div class="card-head"><div><div class="t-h2">Định biên</div>
+      <div class="t-cap">Tự đếm = số nhân sự theo ca đang dùng của nhà máy + bộ phận + ca (người khai "mọi ca" tính vào mọi ca). Báo cáo giao ca tự điền ô Định biên theo số này.
+      Muốn đổi định biên thì thêm / bớt người ở Danh mục → Nhân sự theo ca.</div></div>
+      <button class="nn-btn nn-btn-secondary nn-btn-md" data-mo>${icon('users', 18)}Mở Nhân sự theo ca</button></div>
+    <div class="nn-table-wrap"><table class="nn-table"><thead><tr>${!NMF && nms.length > 1 ? '<th>Nhà máy</th>' : ''}<th>Bộ phận</th><th>Ca</th><th class="num">Người của ca này</th><th class="num">Người mọi ca</th><th class="num">Định biên</th></tr></thead><tbody>
+    ${rows.map((r) => `<tr>${!NMF && nms.length > 1 ? `<td>${esc(nmName(r.nm))}</td>` : ''}<td>${esc(r.bp.ten)}</td><td>${esc(r.c.ten)} <span class="t-cap">${esc(hm(r.c.gio_bd))}–${esc(hm(r.c.gio_kt))}</span></td>
+      <td class="num">${r.cu ? '—' : r.rieng}</td><td class="num">${r.cu ? '—' : r.chung}</td>
+      <td class="num"><b>${r.so ?? '—'}</b>${r.cu ? '<br><span class="t-cap">khai tay cũ — chưa có nhân sự theo ca</span>' : ''}</td></tr>`).join('')
+      || `<tr><td colspan="6" class="muted">Chưa có nhân sự theo ca — vào Danh mục → Nhân sự theo ca để khai (dán từ Excel được)</td></tr>`}
+    </tbody></table></div></section>`;
+  $('[data-mo]', box).onclick = moNhanSuCa;
+}
+
 function caiDat(box) {
   const c = { nha_may_id: S.nm, ...cat.caiDat() };
   box.innerHTML = `<section class="card"><div class="card-head"><div class="t-h2">Cài đặt nhà máy ${esc(nmName(S.nm))}</div></div><div class="form-grid" data-g></div><div class="nn-row" style="padding:16px 0 0" data-a></div></section>`;

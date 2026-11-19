@@ -53,7 +53,7 @@ export async function render(main, { params }) {
       ${p.ghi_chu ? `<p><b>Ghi chú:</b> ${esc(p.ghi_chu)}</p>` : ''}
       <div class="pr-sign">
         <div><b>Người vận hành</b><br><span class="t-cap">${esc(cat.person(p.nguoi_van_hanh_id))}</span></div>
-        <div><b>Tổ trưởng</b><br><span class="t-cap">${esc(cat.person(p.to_truong_id))}${p.xac_nhan_luc ? `<br>Đã xác nhận ${fmtDateTime(p.xac_nhan_luc)}` : ''}</span></div>
+        <div><b>Tổ trưởng / Tổ phó</b><br><span class="t-cap">${esc(cat.person(p.to_truong_id))}${p.xac_nhan_luc ? `<br>Đã xác nhận ${fmtDateTime(p.xac_nhan_luc)}` : ''}</span></div>
         <div><b>Kỹ thuật</b><br><span class="t-cap">${esc(cat.person(p.ky_thuat_id))}</span></div>
       </div>
       <div class="t-cap" style="margin-top:12px">In lúc ${fmtDateTime(new Date())} · NutriNest Báo cáo sản xuất</div>

@@ -7,11 +7,29 @@ import { $, $$, bindNum } from '../ui.js';
 
 export const tpOf = (ma) => (S.cat.quy_cach_tp || []).find((q) => q.ma_tp === ma);
 export const tpCuaSp = (maSp) => (S.cat.quy_cach_tp || []).filter((q) => q.hoat_dong && q.ma_btp === maSp);
-export function tinhDong(r) {
+// v1.14: Tổng SKU / Tổng số lượng tự tính theo công thức nhưng sửa tay được (sku_tay / sl_tay; để trống = theo công thức)
+export const TAY = { tong_sku: 'sku_tay', tong_chai: 'sl_tay' };
+/** Giá trị theo công thức (Tổng số lượng tính từ Tổng SKU đang dùng — kể cả SKU sửa tay) */
+export function congThuc(r) {
   const q = tpOf(r.ma_tp);
-  if (!q || (r.thung == null && r.le == null)) return { tong_sku: null, tong_chai: null };
-  const sku = (+r.thung || 0) * (+q.sl_tp_thung || 0) + (+r.le || 0);
-  return { tong_sku: sku, tong_chai: sku * (+q.sl_btp_tp || 1) };
+  const sku = q && (r.thung != null || r.le != null) ? (+r.thung || 0) * (+q.sl_tp_thung || 0) + (+r.le || 0) : null;
+  const skuDung = r.sku_tay ?? sku;
+  return { tong_sku: sku, tong_chai: skuDung != null ? skuDung * (+q?.sl_btp_tp || 1) : null };
+}
+export function tinhDong(r) {
+  const ct = congThuc(r);
+  return { tong_sku: r.sku_tay ?? ct.tong_sku, tong_chai: r.sl_tay ?? ct.tong_chai };
+}
+export const tenSp = (ma) => (S.cat.san_pham.find((p) => p.ma === ma && p.nha_may_id === S.nm) || S.cat.san_pham.find((p) => p.ma === ma))?.ten || ma;
+/** v1.14: tổng theo từng sản phẩm: [{ ma, ten, sku, chai }] */
+export function tongTheoSp(rows) {
+  const m = new Map();
+  for (const r of rows || []) {
+    if (!r.ma_sp) continue;
+    const t = tinhDong(r); const x = m.get(r.ma_sp) || { ma: r.ma_sp, ten: tenSp(r.ma_sp), sku: 0, chai: 0 };
+    x.sku += t.tong_sku || 0; x.chai += t.tong_chai || 0; m.set(r.ma_sp, x);
+  }
+  return [...m.values()];
 }
 export const tongChai = (rows) => (rows || []).reduce((a, r) => a + (tinhDong(r).tong_chai || 0), 0);
 
@@ -29,12 +47,12 @@ export function tocDoHieuDung(rows, speed) {
 export const spIdOf = (ma) => S.cat.san_pham.find((p) => p.ma === ma && p.nha_may_id === S.nm)?.id || S.cat.san_pham.find((p) => p.ma === ma)?.id || '';
 
 /** Dòng lưu lên máy chủ: kèm giá trị tự tính + tốc độ của sản phẩm (chụp lại lúc ghi) */
-export const dongLuu = (rows, speed) => (rows || []).filter((r) => r.ma_sp || r.thung != null || r.le != null)
+export const dongLuu = (rows, speed) => (rows || []).filter((r) => r.ma_sp || r.thung != null || r.le != null || r.sku_tay != null || r.sl_tay != null)
   .map((r) => ({ ...r, san_pham_id: spIdOf(r.ma_sp) || null, ...tinhDong(r), toc_do: speed(spIdOf(r.ma_sp)) ?? null }));
 
 const COLS = [['ngay_sx', 'Ngày SX', 130, 'date'], ['ma_sp', 'Tên sản phẩm', 190, 'sp'], ['ma_sp_hien', 'Mã SP', 90, 'auto'], ['ma_lo', 'Mã lô', 80, 'text'],
   ['stt_xe', 'STT xe SX', 70, 'stt'], ['kip_sx', 'Kíp SX', 90, 'kip'], ['ma_tp', 'Quy cách đóng gói', 200, 'tp'], ['thung', 'Thùng', 70, 'num'], ['le', 'Lẻ', 60, 'num'],
-  ['tong_sku', 'Tổng SKU', 80, 'auto'], ['tong_chai', 'Tổng số lượng', 90, 'auto']];
+  ['tong_sku', 'Tổng SKU', 90, 'tay'], ['tong_chai', 'Tổng số lượng', 100, 'tay']];
 
 /**
  * Vẽ bảng sản lượng vào box. o = { rows, spIds (sản phẩm chọn ở thông tin chung), ngay, onChange(), canEdit }
@@ -44,8 +62,13 @@ export function slTable(box, o) {
   const sps = () => o.spIds().map((id) => S.cat.byId.san_pham[id]).filter(Boolean);
   const kips = () => cat.kip().map((k) => k.ten);
   const auto = (r, c) => (c === 'ma_sp_hien' ? r.ma_sp || '' : tinhDong(r)[c]);
+  const tayTitle = (man) => (man ? 'Đã sửa tay — xóa trống ô để tính lại theo công thức' : 'Tự tính theo công thức — gõ số để sửa tay');
   const cell = (r, i, [c, , w, t]) => {
     const st = `style="min-width:${w}px;width:100%"`, dis = o.canEdit === false ? 'disabled' : '';
+    if (t === 'tay') {
+      const v = tinhDong(r)[c], man = r[TAY[c]] != null;
+      return `<input class="nn-input${man ? ' sl-tay' : ''}" ${st} data-r="${i}" data-c="${c}" data-t="tay" inputmode="numeric" value="${v == null ? '' : esc(fmtNum(v))}" title="${tayTitle(man)}" ${dis}>`;
+    }
     if (t === 'auto') { const v = auto(r, c); return `<span class="gc-auto" data-a="${i}:${c}">${v == null || v === '' ? '—' : typeof v === 'number' ? fmtNum(v) : esc(v)}</span>`; }
     if (t === 'num') return `<input class="nn-input" ${st} data-r="${i}" data-c="${c}" data-t="num" inputmode="numeric" value="${esc(r[c] != null ? fmtNum(r[c]) : '')}" ${dis}>`;
     if (t === 'date') return `<input class="nn-input" type="date" ${st} data-r="${i}" data-c="${c}" value="${esc(r[c] || '')}" ${dis}>`;
@@ -57,20 +80,41 @@ export function slTable(box, o) {
       ${cur && !opts.some(([v]) => v === cur) ? `<option value="${esc(cur)}" selected>${esc(t === 'tp' ? tpOf(cur)?.ten_tp || cur : cur)}</option>` : ''}
       ${opts.map(([v, l]) => `<option value="${esc(v)}" ${v === cur ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
   };
+  /** v1.14: dòng tổng của từng sản phẩm + tổng tất cả sản phẩm (cột Tổng SKU, Tổng số lượng) */
+  function foot() {
+    const ds = tongTheoSp(rows), n = COLS.length - 2, tail = o.canEdit === false ? '' : '<td></td>';
+    const b = (v, on) => (on ? `<b>${v}</b>` : v);
+    const dong = (l, sku, chai, on) => `<tr><td colspan="${n}" style="text-align:right">${b(esc(l), on)}</td><td class="num">${b(fmtNum(sku), on)}</td><td class="num">${b(fmtNum(chai), on)}</td>${tail}</tr>`;
+    const tong = (k) => ds.reduce((a, x) => a + x[k], 0);
+    return `${ds.length > 1 ? ds.map((x) => dong(`Tổng ${x.ten}`, x.sku, x.chai)).join('') : ''}${dong(ds.length === 1 ? `Tổng sản lượng — ${ds[0].ten}` : 'Tổng sản lượng tất cả sản phẩm', tong('sku'), tong('chai'), true)}`;
+  }
   const draw = () => {
     box.innerHTML = `<div class="nn-table-wrap"><table class="nn-table gc-tb"><thead><tr>${COLS.map(([, l]) => `<th>${esc(l)}</th>`).join('')}${o.canEdit === false ? '' : '<th></th>'}</tr></thead><tbody>
       ${rows.map((r, i) => `<tr>${COLS.map((col) => `<td>${cell(r, i, col)}</td>`).join('')}${o.canEdit === false ? '' : `<td style="white-space:nowrap">
         <button type="button" class="nn-btn nn-btn-ghost nn-btn-sm" data-dup="${i}" title="Chép dòng (STT xe +1)">${icon('copy', 14)}</button>
         <button type="button" class="nn-btn nn-btn-ghost nn-btn-sm" data-rm="${i}" aria-label="Xóa dòng">${icon('x', 14)}</button></td>`}</tr>`).join('')
       || `<tr><td colspan="${COLS.length + 1}" class="muted">${sps().length ? 'Chưa có dòng — bấm Thêm dòng' : 'Chọn sản phẩm ở phần Thông tin chung trước'}</td></tr>`}</tbody>
-      <tfoot><tr><td colspan="${COLS.length - 1}" style="text-align:right"><b>Tổng sản lượng</b></td><td class="num"><b data-tong>${fmtNum(tongChai(rows))}</b></td>${o.canEdit === false ? '' : '<td></td>'}</tr></tfoot></table></div>
+      <tfoot data-foot>${foot()}</tfoot></table></div>
       ${o.canEdit === false ? '' : `<button type="button" class="nn-btn nn-btn-ghost nn-btn-sm" data-add style="margin-top:6px">${icon('plus', 16)}Thêm dòng</button>`}`;
-    $$('[data-t="num"]', box).forEach((x) => bindNum(x, 'int'));
+    $$('[data-t="num"], [data-t="tay"]', box).forEach((x) => bindNum(x, 'int'));
   };
-  const paint = (i) => { for (const c of ['ma_sp_hien', 'tong_sku', 'tong_chai']) { const a = box.querySelector(`[data-a="${i}:${c}"]`); const v = auto(rows[i], c); if (a) a.textContent = v == null || v === '' ? '—' : typeof v === 'number' ? fmtNum(v) : v; }
-    const t = box.querySelector('[data-tong]'); if (t) t.textContent = fmtNum(tongChai(rows)); };
+  const paint = (i) => {
+    const a = box.querySelector(`[data-a="${i}:ma_sp_hien"]`); if (a) a.textContent = rows[i].ma_sp || '—';
+    for (const c of Object.keys(TAY)) {
+      const x = box.querySelector(`[data-r="${i}"][data-c="${c}"]`); if (!x) continue;
+      const man = rows[i][TAY[c]] != null; x.classList.toggle('sl-tay', man); x.title = tayTitle(man);
+      if (document.activeElement !== x) { const v = tinhDong(rows[i])[c]; x.value = v == null ? '' : fmtNum(v); }
+    }
+    const f = box.querySelector('[data-foot]'); if (f) f.innerHTML = foot();
+  };
   const upd = (x, change) => {
     const i = +x.dataset.r, c = x.dataset.c, r = rows[i];
+    if (x.dataset.t === 'tay') {   // sửa tay: để trống hoặc trùng công thức -> bỏ sửa tay
+      const n = toInt(x.value), k = TAY[c];
+      r[k] = null; r[k] = n == null || n === congThuc(r)[c] ? null : n;
+      if (change) { const v = tinhDong(r)[c]; x.value = v == null ? '' : fmtNum(v); }
+      paint(i); o.onChange(); return;
+    }
     r[c] = x.dataset.t === 'num' ? toInt(x.value) : x.value;
     if (change && (c === 'ma_sp' || c === 'ngay_sx')) {
       if (c === 'ma_sp') { if (r.ma_tp && tpOf(r.ma_tp)?.ma_btp !== r.ma_sp) r.ma_tp = ''; const ds = tpCuaSp(r.ma_sp); if (!r.ma_tp && ds.length === 1) r.ma_tp = ds[0].ma_tp; }

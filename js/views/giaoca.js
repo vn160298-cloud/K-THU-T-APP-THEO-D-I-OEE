@@ -62,7 +62,7 @@ const COLS = {
   // Quy cách = chọn tên thành phẩm của sản phẩm đó; Tổng SKU = Thùng × số TP / thùng + Lẻ (lẻ = số thành phẩm); Tổng số lượng = SKU × số BTP / TP
   ns_dg: [['ca_dg', 'Ca đóng gói', 60, 'auto'], ['ngay_dg', 'Ngày đóng gói', 90, 'auto'], ['ngay_sx', 'Ngày sản xuất', 130, 'date'], ['ma_sp_hien', 'Mã sản phẩm', 90, 'auto'],
     ['ma_sp', 'Tên sản phẩm', 190, 'sel:btp'], ['ma_lo', 'Mã lô', 70], ['stt_xe', 'STT xe SX', 70, 'sel:stt'], ['kip_sx', 'Kíp SX', 90, 'sel:kip'], ['ma_tp', 'Quy cách đóng gói', 210, 'sel:tpsp'],
-    ['thung', 'Thùng', 70, 'num'], ['le', 'Lẻ', 60, 'num'], ['tong_sku', 'Tổng SKU', 80, 'auto'], ['tong_chai', 'Tổng số lượng', 90, 'auto'], ['nha_may', 'Nhà máy', 100, 'auto']],
+    ['thung', 'Thùng', 70, 'num'], ['le', 'Lẻ', 60, 'num'], ['tong_sku', 'Tổng SKU', 90, 'tay'], ['tong_chai', 'Tổng số lượng', 100, 'tay'], ['nha_may', 'Nhà máy', 100, 'auto']],
   // v1.8: lỗi sản phẩm (chuyển từ phiếu sang) — mỗi giai đoạn 1 bảng; tên lỗi chọn trong danh mục hoặc gõ tay
   // v1.10: lỗi trong quá trình đóng gói ghi giống lỗi trong quá trình sản xuất (cl_sx)
   cl_sx: [['sp', 'Sản phẩm', 170, 'sel:spca'], ['loi', 'Lỗi', 200, 'list:loi'], ['sl', 'SL lỗi', 80, 'num'], ['ghi_chu', 'Ghi chú', 160]],
@@ -83,6 +83,8 @@ const COLS = {
   kl: [['ns', 'Người vi phạm', 200, 'list:nsca'], ['loi', 'Lỗi vi phạm', 300, 'chk:loi_ky_luat'], ['ghi_chu', 'Ghi chú (bắt buộc khi lỗi khác)', 200]],
 };
 const TONG = { ns_sx: [['hoan_thanh', 'SL hoàn thành']], ns_dg: [['thung', 'Thùng'], ['tong_sku', 'SKU'], ['tong_chai', 'Chai/hũ']], cl_sx: [['sl', 'SL lỗi']], cl_nl: [['tong_loi', 'SL lỗi']], cl_qa: [['tong_kiem', 'Tổng kiểm'], ['tong_loi', 'SL lỗi']], mm: [['phut', 'Dừng (phút)']], tc: [['gio', 'Giờ tăng ca']], kl: [], vg: [['so_gio', 'Giờ nghỉ']] };
+// v1.14: ô tự tính nhưng sửa tay được (để trống = theo công thức)
+const TAYK = { tong_sku: 'sku_tay', tong_chai: 'sl_tay' };
 const VANG = { ca_ngay: 'Nghỉ cả ngày', nua_buoi: 'Nghỉ nửa buổi', gio: 'Xin nghỉ theo giờ' };
 /** 2 giai đoạn lỗi theo bộ phận */
 const gdOf = (dg) => (dg ? ['qc_dau_vao', 'dong_goi'] : ['nguyen_lieu', 'san_xuat']);
@@ -92,13 +94,27 @@ async function tuPhieu(g) {
   const dg = cat.laDongGoi(g.bo_phan_id);
   const rows = (await loadCalc(g.ngay, g.ngay, { force: true }))
     .filter(({ p }) => p.bo_phan_id === g.bo_phan_id && p.ca_id === g.ca_id && (!g.kip_id || !p.kip_id || p.kip_id === g.kip_id));
-  const ns = [], cl = [], mm = [];
+  const ns = [], cl = [], mm = [], qa = [];
+  let coLoiDG = false;
   for (const e of groupEntries(rows)) {
     const { p, c } = e.rep;
     const sp = cat.name('san_pham', p.san_pham_id) || 'Chưa chọn sản phẩm', ten = entryLabel(e);
     if (!dg) ns.push({ nd: `${sp} — ${ten}`, ke_hoach: p.sl_ke_hoach ?? null, hoan_thanh: c.good ?? null });
     // v1.13: phiếu Đóng gói có sản lượng theo sản phẩm / lô / xe -> chép sang Năng suất
-    else for (const r of p.sl_dg || []) ns.push({ ngay_sx: r.ngay_sx || g.ngay, ma_sp: r.ma_sp || '', ma_lo: r.ma_lo || '', stt_xe: r.stt_xe || '', kip_sx: r.kip_sx || '', ma_tp: r.ma_tp || '', thung: r.thung ?? null, le: r.le ?? null });
+    else for (const r of p.sl_dg || []) ns.push({ ngay_sx: r.ngay_sx || g.ngay, ma_sp: r.ma_sp || '', ma_lo: r.ma_lo || '', stt_xe: r.stt_xe || '', kip_sx: r.kip_sx || '', ma_tp: r.ma_tp || '', thung: r.thung ?? null, le: r.le ?? null,
+      sku_tay: r.sku_tay ?? null, sl_tay: r.sl_tay ?? null });
+    // v1.14: phiếu Đóng gói ghi lỗi QC đầu vào + lỗi trong quá trình đóng gói -> chép sang 2 bảng lỗi
+    const ldg = dg && p.loi_dg && typeof p.loi_dg === 'object' ? p.loi_dg : null;
+    if (ldg && ((ldg.qa || []).length || (ldg.qt || []).length)) {
+      coLoiDG = true;
+      for (const r of ldg.qa || []) qa.push({ gd: gdOf(dg)[0], ngay_sx: r.ngay_sx || '', ma_sp: r.ma_sp || '', ma_lo: r.ma_lo || '', stt_xe: r.stt_xe || '', kip_sx: r.kip_sx || '',
+        so_lop: r.so_lop ?? null, tong_kiem: r.tong_kiem ?? null, loi_ds: (r.loi_ds || []).map((x) => ({ loi: x.loi || '', sl: x.sl ?? null })), ghi_chu: r.ghi_chu || '' });
+      for (const r of ldg.qt || []) cl.push({ gd: gdOf(dg)[1], sp: r.ma_sp || '', loi: r.loi || '', sl: r.sl ?? null, ghi_chu: r.ghi_chu || '' });
+      for (const ch of e.children) for (const s of (ch.p.dung_may || []).filter((x) => x.goc !== false).sort((a, b) => (a.gio_bd > b.gio_bd ? 1 : -1))) {
+        mm.push({ tb: cat.mayLabel(ch.p.may_id), loi: s.ten_loi || '', gio: `${hm(s.gio_bd)}–${hm(s.gio_kt)}`, phut: s.phut ?? null, xu_ly: TINH_TRANG[s.tinh_trang]?.label || '' });
+      }
+      continue;
+    }
     const loi = (p.loi_sp || []).length ? p.loi_sp : ((+p.sl_loi_kd || 0) + (+p.sl_loi_qt || 0) ? [{ ten: 'Lỗi (chưa phân loại)', so_luong: (+p.sl_loi_kd || 0) + (+p.sl_loi_qt || 0) }] : []);
     const maSp = S.cat.byId.san_pham[p.san_pham_id]?.ma || '';
     for (const x of loi) cl.push({ gd: gdOf(dg)[1], sp: maSp, loi: x.ten === 'Lỗi (chưa phân loại)' ? 'Lỗi (chưa phân loại) — từ phiếu' : x.ten, sl: x.so_luong, ghi_chu: x.ghi_chu || '' });
@@ -106,7 +122,7 @@ async function tuPhieu(g) {
       mm.push({ tb: cat.mayLabel(ch.p.may_id), loi: s.ten_loi || '', gio: `${hm(s.gio_bd)}–${hm(s.gio_kt)}`, phut: s.phut ?? null, xu_ly: TINH_TRANG[s.tinh_trang]?.label || '' });
     }
   }
-  return { nang_suat: dg && !ns.length ? null : ns, chat_luong: cl, may_moc: mm, so_phieu: groupEntries(rows).length };
+  return { nang_suat: dg && !ns.length ? null : ns, chat_luong: cl, qa: coLoiDG ? qa : null, may_moc: mm, so_phieu: groupEntries(rows).length };
 }
 
 // ================= LẬP / XEM BÁO CÁO =================
@@ -240,14 +256,18 @@ async function editor(main, id, bp0 = '') {
     ma_sp_hien: (r) => r.ma_sp || tpOf(r.ma_tp)?.ma_btp || '',
     quy_cach: (r) => { const q = tpOf(r.ma_tp); return q ? [q.quy_cach_dong, q.quy_cach_thung].filter(Boolean).join(' · ') : ''; },
     // Tổng SKU (thành phẩm) = Thùng × số TP / thùng + Lẻ; Tổng chai/hũ = SKU × số BTP / 1 TP
-    tong_sku: (r) => { const q = tpOf(r.ma_tp); return q && (r.thung != null || r.le != null) ? (+r.thung || 0) * (+q.sl_tp_thung || 0) + (+r.le || 0) : null; },
-    tong_chai: (r) => { const q = tpOf(r.ma_tp); const sku = AUTO.tong_sku(r); return q && sku != null ? sku * (+q.sl_btp_tp || 1) : null; },
+    // v1.14: sửa tay được (sku_tay / sl_tay)
+    tong_sku: (r) => { if (r.sku_tay != null) return r.sku_tay; const q = tpOf(r.ma_tp); return q && (r.thung != null || r.le != null) ? (+r.thung || 0) * (+q.sl_tp_thung || 0) + (+r.le || 0) : null; },
+    tong_chai: (r) => { if (r.sl_tay != null) return r.sl_tay; const q = tpOf(r.ma_tp); const sku = AUTO.tong_sku(r); return sku != null ? sku * (+q?.sl_btp_tp || 1) : null; },
     nha_may: () => cat.name('nha_may', nm),
     loai_bb: (r) => ({ lon: 'Lon', chai: 'Chai' })[loaiBB(r.ma_sp)] || '',
     tong_loi: (r) => { const ds = (r.loi_ds || []).filter((x) => x.sl != null); return ds.length ? ds.reduce((a, x) => a + (+x.sl || 0), 0) : null; },
     ty_le: (r) => { const t = AUTO.tong_loi(r); return t != null && +r.tong_kiem > 0 ? `${fmtNum((t / r.tong_kiem) * 100, 2)}%` : ''; },
   };
   const dinhBien = () => {
+    // v1.14: tự đếm theo Danh mục → Nhân sự theo ca; bộ phận chưa khai nhân sự theo ca thì dùng định biên khai tay cũ
+    const nsc = (S.cat.nhan_su_ca || []).filter((r) => r.hoat_dong !== false && r.nha_may_id === nm && r.bo_phan_id === g.bo_phan_id);
+    if (nsc.length) return g.ca_id ? nsc.filter((r) => !r.ca_id || r.ca_id === g.ca_id).length : null;
     const ds = (S.cat.dinh_bien || []).filter((d) => d.hoat_dong && d.bo_phan_id === g.bo_phan_id && d.ca_id === g.ca_id);
     return (ds.find((d) => g.kip_id && d.kip_id === g.kip_id) || ds.find((d) => !d.kip_id))?.so_nguoi ?? null;
   };
@@ -319,7 +339,7 @@ async function editor(main, id, bp0 = '') {
     const num = (label, k, msg, req) => { const f = el(`<div class="nn-field"><label class="nn-label ${req ? 'req' : ''}">${esc(label)}</label><div class="nn-input-wrap nn-input-md"><input class="nn-input" inputmode="numeric" value="${esc(cn[k] ?? '')}" ${canEdit ? '' : 'disabled'}></div>${msg ? `<div class="nn-field-msg">${msg}</div>` : ''}</div>`);
       const i = $('input', f); bindNum(i, 'int'); i.oninput = () => { cn[k] = toInt(i.value); paintCN(); }; return f; };
     bc.append(
-      ro('Định biên', cn.dinh_bien, db == null && canEdit ? 'Chưa khai định biên cho bộ phận + ca + kíp này (Danh mục → Định biên)' : 'Tự điền theo ca / kíp'),
+      ro('Định biên', cn.dinh_bien, db == null && canEdit ? 'Chưa có nhân sự theo ca của bộ phận + ca này (Danh mục → Nhân sự theo ca)' : 'Tự đếm theo Danh mục → Nhân sự theo ca'),
       cn.dinh_bien != null ? ro('Sĩ số có mặt', '', 'Tự tính = Định biên − Vắng cả ngày') : num('Sĩ số có mặt', 'co_mat', 'Chưa khai định biên nên nhập tay', true),
       ro('Vắng mặt', '', 'Số người nghỉ cả ngày (chọn ở bảng Người vắng)'),
     );
@@ -381,7 +401,7 @@ async function editor(main, id, bp0 = '') {
   const rowsOf = (key) => (key === 'tc' ? g.con_nguoi.tang_ca : key === 'vg' ? g.con_nguoi.vang_ds : key === 'kl' ? g.con_nguoi.ky_luat_ds : g[FIELD[key]]);
   const colsKey = (key) => { const dg = cat.laDongGoi(g.bo_phan_id); return key === 'ns' ? (dg ? 'ns_dg' : 'ns_sx') : key === 'cl1' ? (dg ? 'cl_qa' : 'cl_nl') : key === 'cl2' ? 'cl_sx' : key; };
   const gdKey = (key) => gdOf(cat.laDongGoi(g.bo_phan_id))[key === 'cl1' ? 0 : 1];
-  const valOf = (r, c, t) => (t === 'auto' ? AUTO[c]?.(r) : r[c]);
+  const valOf = (r, c, t) => (t === 'auto' || t === 'tay' ? AUTO[c]?.(r) : r[c]);
   function tong(key) {
     const k = colsKey(key), rows = rowsOf(key) || [];
     if (key === 'vg') {
@@ -416,6 +436,8 @@ async function editor(main, id, bp0 = '') {
         <input type="checkbox" data-r="${i}" data-c="${c}" data-chk="${esc(v)}" ${cur.includes(v) ? 'checked' : ''} ${dis} style="width:18px;height:18px">${esc(l)}</label>`).join('') || '<span class="t-cap">Chưa có danh sách — Danh mục → Danh sách nhập nhanh</span>'}</div>`;
     }
     if (t.startsWith('listdec:')) return `<input class="nn-input" ${st} list="dl-${esc(listId)}-${listOf(t)}" data-r="${i}" data-c="${c}" data-t="dec" inputmode="decimal" value="${esc(viGio(r[c]))}" placeholder="Chọn hoặc gõ" ${dis}>`;
+    if (t === 'tay') { const v = AUTO[c](r), man = r[TAYK[c]] != null;
+      return `<input class="nn-input${man ? ' sl-tay' : ''}" ${st} data-r="${i}" data-c="${c}" data-t="tay" inputmode="numeric" value="${v == null ? '' : esc(fmtNum(v))}" title="${man ? 'Đã sửa tay — xóa trống ô để tính lại theo công thức' : 'Tự tính theo công thức — gõ số để sửa tay'}" ${dis}>`; }
     if (t === 'auto') { const v = AUTO[c]?.(r); return `<span class="gc-auto" data-auto="${i}:${c}">${v == null || v === '' ? '—' : typeof v === 'number' ? fmtNum(v) : esc(v)}</span>`; }
     if (t === 'num' || t === 'dec') return `<input class="nn-input" ${st} data-r="${i}" data-c="${c}" data-t="${t}" inputmode="${t === 'num' ? 'numeric' : 'decimal'}" value="${esc(r[c] != null ? fmtNum(r[c], t === 'dec' ? 1 : 0) : '')}" ${dis}>`;
     if (t === 'date') return `<input class="nn-input" type="date" ${st} data-r="${i}" data-c="${c}" value="${esc(r[c] || '')}" ${dis}>`;
@@ -444,9 +466,12 @@ async function editor(main, id, bp0 = '') {
           <button class="nn-btn nn-btn-ghost nn-btn-sm" data-rm="${key}:${i}" aria-label="Xóa dòng">${icon('x', 14)}</button></td>` : ''}</tr>`).join('')
         || `<tr><td colspan="${cols.length + 1}" class="muted">Chưa có dòng nào</td></tr>`}</tbody></table></div>`;
     $$('textarea.gc-ta', box).forEach(grow);
-    $$('[data-t="num"]', box).forEach((x) => bindNum(x, 'int'));
+    $$('[data-t="num"], [data-t="tay"]', box).forEach((x) => bindNum(x, 'int'));
     $$('.gc-loids input', box).forEach((x) => { x.onkeydown = (ev) => { if (ev.key === 'Enter') ev.preventDefault(); }; });
-    const paintAuto = (i) => { for (const [c, , , t] of cols) if (t === 'auto') { const a = box.querySelector(`[data-auto="${i}:${c}"]`); const v = AUTO[c]?.(rows[i]); if (a) a.textContent = v == null || v === '' ? '—' : typeof v === 'number' ? fmtNum(v) : v; } };
+    const paintAuto = (i) => { for (const [c, , , t] of cols) {
+      if (t === 'auto') { const a = box.querySelector(`[data-auto="${i}:${c}"]`); const v = AUTO[c]?.(rows[i]); if (a) a.textContent = v == null || v === '' ? '—' : typeof v === 'number' ? fmtNum(v) : v; }
+      if (t === 'tay') { const a = box.querySelector(`[data-r="${i}"][data-c="${c}"]`); if (a) { a.classList.toggle('sl-tay', rows[i][TAYK[c]] != null); if (document.activeElement !== a) { const v = AUTO[c](rows[i]); a.value = v == null ? '' : fmtNum(v); } } }
+    } };
     const upd = (x, e) => {
       const i = +x.dataset.r, c = x.dataset.c, t = x.dataset.t;
       if (x.dataset.chk != null) {                                  // ô tích nhiều lựa chọn
@@ -457,6 +482,11 @@ async function editor(main, id, bp0 = '') {
       if (x.dataset.li != null) {                                   // ô trong danh sách nhiều lỗi
         const it = rows[i].loi_ds[+x.dataset.li];
         it[x.dataset.lf] = x.dataset.lf === 'sl' ? toInt(x.value) : x.value;
+        paintAuto(i); tong(key); return;
+      }
+      if (t === 'tay') {   // sửa tay: để trống hoặc trùng công thức -> bỏ sửa tay
+        const n = toInt(x.value), kk = TAYK[c]; rows[i][kk] = null; rows[i][kk] = n == null || n === AUTO[c](rows[i]) ? null : n;
+        if (e?.type === 'change') { const v = AUTO[c](rows[i]); x.value = v == null ? '' : fmtNum(v); }
         paintAuto(i); tong(key); return;
       }
       rows[i][c] = t === 'num' ? toInt(x.value) : t === 'dec' ? toNum(x.value) : x.value;
@@ -559,11 +589,12 @@ async function editor(main, id, bp0 = '') {
       if (t.closest('[data-fill]')) {
         if (!g.ca_id) return toast('Chọn ca trước', 'warning');
         const r = await tuPhieu(g);
-        const de = (r.nang_suat && g.nang_suat.length) || g.loi2.length || g.may_moc.length;
-        if (de && !(await confirmBox(`Ghi đè ${r.nang_suat ? 'Năng suất, ' : ''}lỗi trong quá trình, Máy móc bằng số liệu từ phiếu? (Bảng ${cat.laDongGoi(g.bo_phan_id) ? 'QA đầu vào' : 'lỗi nguyên liệu'} giữ nguyên)`, { ok: 'Ghi đè' }))) return;
+        const de = (r.nang_suat && g.nang_suat.length) || g.loi2.length || g.may_moc.length || (r.qa && g.loi1.length);
+        const t1 = cat.laDongGoi(g.bo_phan_id) ? 'QC đầu vào' : 'lỗi nguyên liệu';
+        if (de && !(await confirmBox(`Ghi đè ${r.nang_suat ? 'Năng suất, ' : ''}${r.qa ? `${t1}, ` : ''}lỗi trong quá trình, Máy móc bằng số liệu từ phiếu?${r.qa ? '' : ` (Bảng ${t1} giữ nguyên)`}`, { ok: 'Ghi đè' }))) return;
         if (r.nang_suat) g.nang_suat = r.nang_suat;
         const ga = gdOf(cat.laDongGoi(g.bo_phan_id))[0];
-        Object.assign(g, { chat_luong: [...g.loi1.map((x) => ({ ...x, gd: ga })), ...r.chat_luong], may_moc: r.may_moc }); splitCL();
+        Object.assign(g, { chat_luong: [...(r.qa || g.loi1.map((x) => ({ ...x, gd: ga }))), ...r.chat_luong], may_moc: r.may_moc }); splitCL();
         build(); toast(r.so_phieu ? `Đã lấy số từ ${r.so_phieu} phiếu` : 'Không có phiếu nào của bộ phận, ngày, ca này', r.so_phieu ? 'success' : 'warning');
       } else if (t.closest('[data-draft]')) await luu(false);
       else if (t.closest('[data-send]')) await luu(true);
