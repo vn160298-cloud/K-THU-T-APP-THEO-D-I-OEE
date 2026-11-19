@@ -12,7 +12,7 @@ const yes = (v) => (v ? `<span class="nn-status nn-tone-success">${icon('pass', 
 
 const TABS = () => [
   { k: 'may', t: 'Máy' }, { k: 'ma_loi', t: 'Mã lỗi' }, { k: 'day_chuyen', t: 'Dây chuyền' }, { k: 'san_pham', t: 'Sản phẩm' },
-  { k: 'loi_sp', t: 'Lỗi sản phẩm' }, { k: 'toc_do', t: 'Tốc độ định mức' }, { k: 'ca', t: 'Ca làm việc' }, { k: 'kip', t: 'Kíp' },
+  { k: 'loi_sp', t: 'Lỗi sản phẩm' }, { k: 'hang_muc_kt', t: 'Hạng mục kiểm tra KT' }, { k: 'toc_do', t: 'Tốc độ định mức' }, { k: 'ca', t: 'Ca làm việc' }, { k: 'kip', t: 'Kíp' },
   { k: 'dinh_bien', t: 'Định biên' }, { k: 'quy_cach', t: 'Quy cách đóng gói' }, { k: 'ds_nhap_nhanh', t: 'Danh sách nhập nhanh' },
   { k: 'nhan_su_ca', t: 'Nhân sự theo ca' }, { k: 'nhan_su', t: 'Nhân sự (tài khoản)' }, { k: 'phan_cong', t: 'Phân công' }, { k: 'bo_phan', t: 'Bộ phận' }, { k: 'khu_vuc', t: 'Khu vực' },
   can.adminTong() && { k: 'nha_may', t: 'Nhà máy' }, { k: 'cai_dat', t: 'Cài đặt' },
@@ -24,10 +24,11 @@ const opt = (list, f = (x) => x.ten) => list.map((x) => ({ value: x.id, label: !
 const ofNm = (t) => (S.cat[t] || []).filter((r) => !NMF || r.nha_may_id === NMF);
 const dcOf = (nm) => S.cat.day_chuyen.filter((l) => l.hoat_dong && (nm ? l.nha_may_id === nm : !NMF || l.nha_may_id === NMF));
 const donOf = (all, nm) => S.cat.may.filter((m) => (all || m.hoat_dong) && (nm ? m.nha_may_id === nm : !NMF || m.nha_may_id === NMF) && !cat.lineOfMay(m.id));
-const LOAI_DS = { ly_do_tang_ca: 'Lý do tăng ca', loi_ky_luat: 'Lỗi kỷ luật lao động', loai_nguyen_lieu: 'Loại nguyên liệu / bao bì' };
+const LOAI_DS = { ly_do_tang_ca: 'Lý do tăng ca', loi_ky_luat: 'Lỗi kỷ luật lao động', loai_nguyen_lieu: 'Loại nguyên liệu / bao bì', kt_5s: 'Hạng mục 5S & rò rỉ (Kỹ thuật)' };
 const BAO_BI = { lon: 'Yến lon', chai: 'Yến chai' };
 // v1.10.1: Danh sách nhập nhanh tách riêng từng loại. v1.11: lỗi QA đầu vào là lỗi sản phẩm (giai đoạn QA đầu vào) — tab Lỗi sản phẩm
-const DS_NHANH = ['ly_do_tang_ca', 'loi_ky_luat', 'loai_nguyen_lieu'];
+const DS_NHANH = ['ly_do_tang_ca', 'loi_ky_luat', 'loai_nguyen_lieu', 'kt_5s'];
+let hmMay = '';
 let dsLoai = 'ly_do_tang_ca';
 /** Nút chọn phụ (dạng tab nhỏ) */
 const subTabs = (list, cur, attr) => `<div class="nn-row" style="padding:0 0 12px;gap:8px;flex-wrap:wrap">${list.map(([k, t]) =>
@@ -121,8 +122,11 @@ const CFG = {
   }),
   kip: () => ({
     title: 'Kíp', rows: ofNm('kip'),
-    cols: [['ten', 'Kíp'], [(r) => nmName(r.nha_may_id), 'Thuộc nhà máy'], [(r) => yes(r.hoat_dong), 'Trạng thái', 'html']], nmCol: true,
-    fields: [['ten', 'Tên kíp', 'text', true, null, 'Ví dụ: Kíp 3 — nhóm người làm luân phiên, chọn trên phiếu và báo cáo giao ca'], ['thu_tu', 'Thứ tự', 'number'], ['hoat_dong', 'Đang dùng', 'bool']],
+    cols: [['ten', 'Kíp'], [(r) => nmName(r.nha_may_id), 'Thuộc nhà máy'], [(r) => cat.name('ca', r.ca_id) || '—', 'Thuộc ca'], [(r) => yes(r.hoat_dong), 'Trạng thái', 'html']], nmCol: true,
+    fields: [['ten', 'Tên kíp', 'text', true, null, 'Ví dụ: Kíp 3 — nhóm người làm luân phiên, chọn trên phiếu và báo cáo giao ca'],
+      ['ca_id', 'Thuộc ca', 'select', false, () => opt(ofNm('ca').filter((c) => c.hoat_dong), (c) => `${c.ten} (${hm(c.gio_bd)}–${hm(c.gio_kt)})${c.bo_phan_id ? ` · ${cat.name('bo_phan', c.bo_phan_id)}` : ''}`),
+        'Chọn kíp trên phiếu / báo cáo giao ca thì tự điền nhà máy + ca này. Kíp đảo ca thì sửa lại ở đây.'],
+      ['thu_tu', 'Thứ tự', 'number'], ['hoat_dong', 'Đang dùng', 'bool']],
     def: () => ({ nha_may_id: S.nm, hoat_dong: true, thu_tu: ofNm('kip').length + 1 }),
   }),
   dinh_bien: () => ({
@@ -213,6 +217,7 @@ export async function render(main, { q }) {
       crud($('[data-in]', body), () => dsCfg(dsLoai, `${LOAI_DS[dsLoai]} (dùng chung mọi nhà máy)`), show);
     }
     else if (tab === 'loi_sp') loiSp(body, show);
+    else if (tab === 'hang_muc_kt') hangMucKT(body, show);
     else if (CFG[tab]) crud(body, () => ({ table: tab, ...CFG[tab]() }), show);
     else if (tab === 'ma_loi') maLoi(body, show);
     else if (tab === 'toc_do') tocDo(body);
@@ -898,7 +903,7 @@ function phanCong(box) {
     const have = new Set(cur.map((x) => x.nhan_su_id));
     const tatCa = S.cat.nhan_su.filter((n) => n.hoat_dong && roles.includes(n.vai_tro) && (!n.nha_may_id || n.nha_may_id === caNm()) && !have.has(n.id));
     const toOpt = (n) => ({ value: n.id, label: n.ho_ten, sub: `${n.ma_nv} · ${VAI_TRO[n.vai_tro]}${n.bo_phan_id ? ` · ${cat.name('bo_phan', n.bo_phan_id)}` : ''}${n.ca_id ? ` · ${cat.name('ca', n.ca_id)}` : ''}` });
-    const dung = tatCa.filter((n) => cat.hopNhom(n, { bp: bpNhom(), ca: st.ca }));
+    const dung = tatCa.filter((n) => cat.hopNhom(n, { bp: vt === 'ky_thuat' ? '' : bpNhom(), ca: st.ca }));
     wrap.append(comboField({ label: `Thêm ${title.toLowerCase()}`, size: 'md', placeholder: '— Chọn người —',
       options: dung.map(toOpt), more: dung.length < tatCa.length ? { label: 'Xem tất cả nhân sự (khác bộ phận / ca)', options: () => tatCa.map(toOpt) } : undefined,
       onChange: async (v) => {
@@ -914,22 +919,22 @@ function phanCong(box) {
     const c = $('[data-cur]', box);
     if (!st.ca || !st.t) { c.innerHTML = '<div class="empty">Chưa có ca hoặc dây chuyền / máy — khai báo ở các tab trước</div>'; return; }
     c.innerHTML = '<div class="form-grid" style="margin-top:12px"></div>';
-    $('.form-grid', c).append(block('to_truong', 'Tổ trưởng', ['to_truong', 'quan_ly']), block('van_hanh', 'Người vận hành', ['van_hanh', 'to_truong']));
+    $('.form-grid', c).append(block('to_truong', 'Tổ trưởng', ['to_truong', 'quan_ly']), block('van_hanh', 'Người vận hành', ['van_hanh', 'to_truong']), block('ky_thuat', 'Kỹ thuật', ['ky_thuat']));
   }
 
   function drawSum() {
     const groups = new Map();
     for (const x of rowsOf()) {
       const key = `${x.ca_id}|${x.day_chuyen_id ? `dc:${x.day_chuyen_id}` : `m:${x.may_id}`}`;
-      const g = groups.get(key) || { ca: x.ca_id, t: key.split('|')[1], x, tt: [], vh: [] };
-      (x.vai_tro === 'to_truong' ? g.tt : g.vh).push(S.cat.byId.nhan_su[x.nhan_su_id]?.ho_ten || '?');
+      const g = groups.get(key) || { ca: x.ca_id, t: key.split('|')[1], x, tt: [], vh: [], kt: [] };
+      (x.vai_tro === 'to_truong' ? g.tt : x.vai_tro === 'ky_thuat' ? g.kt : g.vh).push(S.cat.byId.nhan_su[x.nhan_su_id]?.ho_ten || '?');
       groups.set(key, g);
     }
     const arr = [...groups.values()].sort((a, b) => cat.name('ca', a.ca).localeCompare(cat.name('ca', b.ca), 'vi') || tLabel(a.x).localeCompare(tLabel(b.x), 'vi', { numeric: true }));
     $('[data-sumt]', box).textContent = `Bảng phân công ${NMF ? nmName(NMF) : '— tất cả nhà máy'} (${arr.length})`;
-    $('[data-sum]', box).innerHTML = `<div class="nn-table-wrap"><table class="nn-table"><thead><tr><th>Ca</th><th>Dây chuyền / Máy</th><th>Tổ trưởng</th><th>Người vận hành</th><th></th></tr></thead><tbody>
-      ${arr.map((g) => `<tr><td>${esc(cat.name('ca', g.ca))}</td><td class="wrap">${esc(tLabel(g.x))}</td><td class="wrap">${esc(g.tt.join(', ') || '—')}</td><td class="wrap">${esc(g.vh.join(', ') || '—')}</td>
-        <td><button class="nn-btn nn-btn-ghost nn-btn-sm" data-pick="${g.ca}|${g.t}">${icon('edit', 14)}Sửa</button></td></tr>`).join('') || '<tr><td colspan="5" class="muted">Chưa có phân công nào</td></tr>'}</tbody></table></div>`;
+    $('[data-sum]', box).innerHTML = `<div class="nn-table-wrap"><table class="nn-table"><thead><tr><th>Ca</th><th>Dây chuyền / Máy</th><th>Tổ trưởng</th><th>Người vận hành</th><th>Kỹ thuật</th><th></th></tr></thead><tbody>
+      ${arr.map((g) => `<tr><td>${esc(cat.name('ca', g.ca))}</td><td class="wrap">${esc(tLabel(g.x))}</td><td class="wrap">${esc(g.tt.join(', ') || '—')}</td><td class="wrap">${esc(g.vh.join(', ') || '—')}</td><td class="wrap">${esc(g.kt.join(', ') || '—')}</td>
+        <td><button class="nn-btn nn-btn-ghost nn-btn-sm" data-pick="${g.ca}|${g.t}">${icon('edit', 14)}Sửa</button></td></tr>`).join('') || '<tr><td colspan="6" class="muted">Chưa có phân công nào</td></tr>'}</tbody></table></div>`;
   }
 
   box.onclick = async (e) => {
@@ -947,6 +952,50 @@ function phanCong(box) {
     }
   };
   drawCur(); drawSum();
+}
+
+// ---------- v1.12: Hạng mục kiểm tra an toàn & vận hành đầu ca — mỗi máy kỹ thuật 1 bộ riêng ----------
+function hangMucKT(box, refresh) {
+  if (!S.cat.hang_muc_kt) { box.innerHTML = '<div class="empty">Chưa cập nhật database — chạy lại file supabase/01_schema.sql bản mới</div>'; return; }
+  const mays = ofNm('may').filter((m) => m.hoat_dong && cat.laKyThuat(m.bo_phan_id));
+  if (!mays.some((m) => m.id === hmMay)) hmMay = mays[0]?.id || '';
+  box.innerHTML = `<div class="filters" data-hm></div><div data-in></div>
+    <p class="t-cap" style="margin-top:8px">Phiếu báo cáo giao ca Kỹ thuật → mục Nhật ký vận hành hiện các hạng mục này cho từng máy đang hoạt động.
+      Kiểu <b>Đạt / Không đạt</b>: chọn Không đạt thì bắt buộc ghi nguyên nhân. Kiểu <b>Ghi số</b>: nhập số thực tế. Ô "Nhóm" để gộp nhiều hạng mục dưới 1 tiêu đề (VD 9. Áp kế lúc bắt đầu).
+      Chỉ hiện máy thuộc bộ phận Kỹ thuật.</p>`;
+  const hm0 = $('[data-hm]', box);
+  if (!mays.length) { $('[data-in]', box).innerHTML = '<div class="empty">Chưa có máy nào thuộc bộ phận Kỹ thuật (Danh mục → Máy)</div>'; return; }
+  hm0.append(selectField({ label: 'Máy kỹ thuật', size: 'md', value: hmMay, options: mays.map((m) => ({ value: m.id, label: `${m.ma} · ${m.ten}${NMF ? '' : ` · ${nmName(m.nha_may_id)}`}` })),
+    onChange: (v) => { hmMay = v; refresh(); } }));
+  const KIEU = { dat: 'Đạt / Không đạt', so: 'Ghi số' };
+  crud($('[data-in]', box), () => ({
+    title: `Hạng mục kiểm tra · ${cat.mayLabel(hmMay)}`, table: 'hang_muc_kt', nmCol: true,
+    rows: (S.cat.hang_muc_kt || []).filter((r) => r.may_id === hmMay).sort((a, b) => a.thu_tu - b.thu_tu),
+    cols: [['thu_tu', 'TT'], [(r) => r.nhom || '', 'Nhóm'], ['ten', 'Hạng mục'], [(r) => KIEU[r.kieu], 'Kiểu'], [(r) => r.don_vi || '', 'Đơn vị'], [(r) => yes(r.hoat_dong), 'Trạng thái', 'html']],
+    fields: [['nhom', 'Nhóm (không bắt buộc)', 'text', false, null, 'VD: 9. Áp kế lúc bắt đầu'], ['ten', 'Hạng mục', 'text', true],
+      ['kieu', 'Kiểu nhập', 'select', true, () => Object.entries(KIEU).map(([k, v]) => ({ value: k, label: v }))], ['don_vi', 'Đơn vị (kiểu ghi số)', 'text', false, null, 'VD: MPa, °C, kg/cm²'],
+      ['thu_tu', 'Thứ tự', 'number'], ['hoat_dong', 'Đang dùng', 'bool']],
+    def: () => ({ may_id: hmMay, kieu: 'dat', hoat_dong: true, thu_tu: (S.cat.hang_muc_kt || []).filter((r) => r.may_id === hmMay).length + 1 }),
+    headerExtra: () => `<button class="nn-btn nn-btn-secondary nn-btn-md" data-hmcopy>${icon('copy', 18)}Sao chép từ máy khác</button>`,
+  }), refresh);
+  $('[data-in]', box).addEventListener('click', (e) => {
+    if (!e.target.closest('[data-hmcopy]')) return;
+    let src = '';
+    const f = selectField({ label: 'Chép các hạng mục của máy', placeholder: '— Chọn máy nguồn —', options: mays.filter((m) => m.id !== hmMay && (S.cat.hang_muc_kt || []).some((h) => h.may_id === m.id))
+      .map((m) => ({ value: m.id, label: `${m.ma} · ${m.ten}` })), onChange: (v) => { src = v; } });
+    const ok = el(`<button class="nn-btn nn-btn-primary nn-btn-lg">${icon('copy', 18)}Sao chép</button>`);
+    const sh = openSheet({ title: `Sao chép hạng mục sang ${cat.mayLabel(hmMay)}`, body: f, foot: [ok] });
+    ok.onclick = async () => {
+      if (!src) return toast('Chọn máy nguồn', 'warning');
+      const co = new Set((S.cat.hang_muc_kt || []).filter((h) => h.may_id === hmMay).map((h) => noAccent(`${h.nhom || ''}|${h.ten}`)));
+      const rows = (S.cat.hang_muc_kt || []).filter((h) => h.may_id === src && !co.has(noAccent(`${h.nhom || ''}|${h.ten}`)))
+        .map(({ nhom, ten, kieu, don_vi, thu_tu, hoat_dong }) => ({ may_id: hmMay, nhom, ten, kieu, don_vi, thu_tu, hoat_dong }));
+      if (!rows.length) return toast('Không có hạng mục mới để chép', 'info');
+      const { error } = await sb.from('hang_muc_kt').insert(rows);
+      if (error) return toast(errText(error), 'danger');
+      sh.close(); await reload(); toast(`Đã chép ${rows.length} hạng mục`, 'success'); refresh();
+    };
+  });
 }
 
 // ---------- Cài đặt ----------

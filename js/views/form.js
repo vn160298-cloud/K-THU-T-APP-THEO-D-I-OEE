@@ -4,7 +4,7 @@ import { drafts, queue, lsSet } from '../store.js';
 import { calcPhieu } from '../kpi.js';
 import {
   esc, icon, uuid, today, nowHM, hm, fmtDate, fmtNum, fmtPct, fmtMin, minutesBetween, timeInRange, toNum, toInt,
-  NHOM_TT, TINH_TRANG, MUC_DO, LOI_KHAC, mucDoBadge, ttBadge, phieuBadge, oeeBadge, debounce, fmtDateTime, VAI_TRO, isLoiKhac,
+  NHOM_TT, TINH_TRANG, MUC_DO, LOI_KHAC, mucDoBadge, ttBadge, phieuBadge, oeeBadge, debounce, fmtDateTime, VAI_TRO, isLoiKhac, sortCat,
 } from '../lib.js';
 import {
   el, $, $$, toast, confirmBox, inputField, selectField, comboField, dateField, textField, kpiCard, segmented, timeField, openSheet, multiField,
@@ -258,17 +258,21 @@ function form(main, d) {
 
     // --- Thông tin chung
     const g1 = $('[data-g1]', main);
+    /** Đổi nhà máy: bỏ chọn dây chuyền / máy, ca, kíp, sản phẩm, lần dừng. Trả về true nếu đã đổi. */
+    async function doiNM(v) {
+      if (!v || v === S.nm) return false;
+      if ((d.may_id || d.day_chuyen_id) && !(await confirmBox('Đổi nhà máy sẽ bỏ chọn dây chuyền / máy, ca, kíp, sản phẩm và các lần dừng đã chọn. Tiếp tục?', { ok: 'Đổi nhà máy' }))) return false;
+      S.nm = v; lsSet('nm', v); drawHeader();
+      const bpTen = cat.name('bo_phan', d.bo_phan_id);
+      Object.assign(d, { may_id: '', day_chuyen_id: '', ca_id: '', kip_id: '', kip_sx_id: '', san_pham_id: '', toc_do_dm: null, bo_may: [], _kv: '', loi_sp: [],
+        bo_phan_id: cat.boPhan().find((b) => b.ten === bpTen)?.id || '' });
+      d.dung_may.forEach((x) => { clearFault(x); x.may_id = ''; });
+      return true;
+    }
     // v1.6: chọn nhà máy (admin tổng quản nhiều nhà máy); người khác thấy nhà máy của mình
     if (can.adminTong() && S.cat.nha_may.filter((n) => n.hoat_dong).length > 1) {
       g1.append(selectField({ label: 'Nhà máy', value: S.nm, req: true, options: S.cat.nha_may.filter((n) => n.hoat_dong).map((n) => ({ value: n.id, label: n.ten })),
-        onChange: async (v) => {
-          if (!v || v === S.nm) return;
-          if ((d.may_id || d.day_chuyen_id) && !(await confirmBox('Đổi nhà máy sẽ bỏ chọn dây chuyền / máy, ca, kíp, sản phẩm và các lần dừng đã chọn. Tiếp tục?', { ok: 'Đổi nhà máy' }))) return build();
-          S.nm = v; lsSet('nm', v); drawHeader();
-          Object.assign(d, { may_id: '', day_chuyen_id: '', ca_id: '', kip_id: '', kip_sx_id: '', san_pham_id: '', toc_do_dm: null, bo_may: [], _kv: '', loi_sp: [] });
-          d.dung_may.forEach((x) => { clearFault(x); x.may_id = ''; });
-          pickDefaultCa(); changed(); build();
-        } }));
+        onChange: async (v) => { if (await doiNM(v)) { pickDefaultCa(); changed(); } build(); } }));
     } else {
       g1.append(el(`<div class="nn-field"><span class="nn-label">Nhà máy</span><span class="chip dept" style="height:40px">${esc(cat.name('nha_may', S.nm))}</span></div>`));
     }
@@ -356,8 +360,16 @@ function form(main, d) {
       dateField({ label: 'Ngày', value: d.ngay, req: true, onChange: (v) => { d.ngay = v; changed(); } }),
       selectField({ label: 'Ca', value: d.ca_id, req: true, options: caOptions().map((c) => ({ value: c.id, label: `${c.ten} (${hm(c.gio_bd)}–${hm(c.gio_kt)})` })),
         onChange: (v) => { d.ca_id = v; applyCa(); applyPeople(); changed(); build(); } }),
-      selectField({ label: 'Kíp', value: d.kip_id, placeholder: cat.kip().length ? '— Chọn kíp —' : 'Chưa khai kíp (Danh mục → Kíp)', options: cat.kip().map((k) => ({ value: k.id, label: k.ten })),
-        onChange: (v) => { d.kip_id = v; if (!d.kip_sx_id) d.kip_sx_id = v; changed(); } }),
+      // v1.12: chọn kíp -> tự điền nhà máy + ca của kíp (Danh mục → Kíp → Thuộc ca)
+      selectField({ label: 'Kíp', value: d.kip_id, placeholder: kipList().length ? '— Chọn kíp —' : 'Chưa khai kíp (Danh mục → Kíp)',
+        options: kipList().map((k) => ({ value: k.id, label: `${k.ten}${k.nha_may_id !== S.nm ? ` · ${cat.name('nha_may', k.nha_may_id)}` : ''}${k.ca_id ? ` · ${cat.name('ca', k.ca_id)}` : ''}` })),
+        onChange: async (v) => {
+          const k = S.cat.byId.kip?.[v];
+          if (k && k.nha_may_id !== S.nm && !(await doiNM(k.nha_may_id))) return build();
+          d.kip_id = v; if (!d.kip_sx_id) d.kip_sx_id = v;
+          if (k?.ca_id && S.cat.byId.ca[k.ca_id]) { d.ca_id = k.ca_id; applyCa(); applyPeople(); } else if (!d.ca_id) pickDefaultCa();
+          changed(); build();
+        } }),
       comboField({ label: 'Sản phẩm', value: d.san_pham_id, req: true, options: cat.sanPhamFor(target()).map((s) => ({ value: s.id, label: s.ten, sub: s.dvt ? `${s.ma} · ${s.dvt}` : s.ma })),
         msg: !(d.may_id || d.day_chuyen_id) ? ''
           : cat.coGanSanPham(target()) ? `Chỉ hiện sản phẩm đã khai cho ${isLine() ? 'dây chuyền' : 'máy'} này`
@@ -465,8 +477,11 @@ function form(main, d) {
   }
 
   // Người xử lý: Kỹ thuật lên đầu danh sách
-  const peopleXL = () => cat.nhanSu().map((n) => ({ value: n.id, label: n.ho_ten, sub: VAI_TRO[n.vai_tro], k: n.vai_tro === 'ky_thuat' ? 0 : 1 }))
-    .sort((a, b) => a.k - b.k || a.label.localeCompare(b.label, 'vi'));
+  // v1.12: người xử lý = kỹ thuật + vận hành được phân công máy / dây chuyền đó ở ca này; "Xem tất cả" để chọn người làm thay
+  const xlOpt = (n) => ({ value: n.id, label: n.ho_ten, sub: VAI_TRO[n.vai_tro] });
+  const peopleXL = (s) => { const r = cat.nguoiXuLy({ ca_id: d.ca_id, may_id: s?.may_id || d.may_id, day_chuyen_id: d.day_chuyen_id });
+    return { nhom: r.nhom.map(xlOpt), tatCa: r.tatCa.map(xlOpt) }; };
+  const kipList = () => (can.adminTong() ? sortCat((S.cat.kip || []).filter((k) => k.hoat_dong)) : cat.kip());
 
   function stopCard(s, i) {
     const mk = d.multi ? d.muc.find((x) => x.key.slice(x.key.indexOf(':') + 1) === s.muc) : null;
@@ -572,8 +587,11 @@ function form(main, d) {
       g.append(cb);
     }
     g.append(
-      comboField({ label: 'Người xử lý chính', value: s.nguoi_xu_ly_id, options: peopleXL(), onChange: (v) => { s.nguoi_xu_ly_id = v; s.nguoi_ho_tro = (s.nguoi_ho_tro || []).filter((x) => x !== v); changed(); } }),
-      multiField({ label: 'Người hỗ trợ', value: s.nguoi_ho_tro || [], options: peopleXL(), span: true, onChange: (v) => { s.nguoi_ho_tro = v.filter((x) => x !== s.nguoi_xu_ly_id); changed(); } }),
+      ...(() => { const px = peopleXL(s); const cur = s.nguoi_xu_ly_id && !px.nhom.some((o) => o.value === s.nguoi_xu_ly_id) ? px.tatCa.filter((o) => o.value === s.nguoi_xu_ly_id) : [];
+        const ids = new Set(px.nhom.map((o) => o.value));
+        return [comboField({ label: 'Người xử lý chính', value: s.nguoi_xu_ly_id, options: [...px.nhom, ...cur], msg: px.nhom.length ? 'Kỹ thuật + vận hành của máy này (theo phân công ca)' : '',
+          more: { label: 'Xem tất cả nhân sự (người làm thay)', options: () => px.tatCa }, onChange: (v) => { s.nguoi_xu_ly_id = v; s.nguoi_ho_tro = (s.nguoi_ho_tro || []).filter((x) => x !== v); changed(); } }),
+        multiField({ label: 'Người hỗ trợ', value: s.nguoi_ho_tro || [], options: [...px.nhom, ...px.tatCa.filter((o) => !ids.has(o.value))], span: true, onChange: (v) => { s.nguoi_ho_tro = v.filter((x) => x !== s.nguoi_xu_ly_id); changed(); } })]; })(),
       selectField({ label: 'Tình trạng lỗi', value: s.tinh_trang, placeholder: '— Chọn —', options: Object.entries(TINH_TRANG).map(([k, t]) => ({ value: k, label: t.label })), onChange: (v) => { s.tinh_trang = v || 'cho_xu_ly'; changed(); } }),
     );
     const khac = isLoiKhac(s.ten_loi);
@@ -831,7 +849,8 @@ async function detail(main, id) {
   const locked = rows.some((r) => r.trang_thai === 'da_xac_nhan');
   const me = S.profile;
   // v1.5: phiếu đã khóa thì không ai sửa / xóa trực tiếp — phải mở khóa (có lý do) hoặc yêu cầu mở khóa
-  const arc = !!p._luu_tru;
+  // v1.12: phiếu tự tạo từ báo cáo giao ca Kỹ thuật -> chỉ xem, sửa trong báo cáo giao ca
+  const arc = !!p._luu_tru || !!p.giao_ca_id;
   const canEdit = !arc && !locked && can.ghiPhieu() && (p.nguoi_tao === me.id || can.xacNhan());
   const canDelete = !arc && !locked && (can.suaKhoa() || p.nguoi_tao === me.id);
   const [{ data: ycs }, { data: logs }] = await Promise.all([
@@ -848,7 +867,9 @@ async function detail(main, id) {
 
   main.innerHTML = `<div class="page-head"><div><div class="t-page">${esc(title)} · ${fmtDate(p.ngay)} · ${esc(cat.name('ca', p.ca_id))}</div>
     <div class="muted">${isGroup ? `Phiếu dây chuyền · ${rows.length} máy · máy cuối ${esc(cat.name('may', lastId, 'ma'))}` : `${esc(m?.ten || '')} · ${esc(cat.name('bo_phan', p.bo_phan_id))}`}</div></div>${phieuBadge(p.trang_thai)}</div>
-    ${arc ? `<div class="nn-alert nn-alert-info section"><span class="nn-alert-icon nn-tone-info">${icon('info', 20)}</span><div class="nn-alert-body"><div class="nn-alert-text">Phiếu đã chuyển sang lưu trữ — chỉ xem, không sửa.</div></div></div>` : ''}
+    ${arc ? `<div class="nn-alert nn-alert-info section"><span class="nn-alert-icon nn-tone-info">${icon('info', 20)}</span><div class="nn-alert-body"><div class="nn-alert-text">${p.giao_ca_id
+      ? `Phiếu tự tạo từ báo cáo giao ca Kỹ thuật (không tính OEE, chỉ tính lần dừng, MTBF, MTTR) — sửa trong <a href="#/giao-ca/${p.giao_ca_id}">báo cáo giao ca</a>.`
+      : 'Phiếu đã chuyển sang lưu trữ — chỉ xem, không sửa.'}</div></div></div>` : ''}
     ${ycCho ? `<div class="nn-alert nn-alert-warning section"><span class="nn-alert-icon nn-tone-warning">${icon('hold', 20)}</span><div class="nn-alert-body">
       <div class="nn-alert-title">Đang chờ duyệt mở khóa</div><div class="nn-alert-text">${esc(cat.person(ycCho.nguoi_yc) || '')} · ${fmtDateTime(ycCho.luc)} · Lý do: ${esc(ycCho.ly_do)}</div></div></div>` : ''}
     <section class="card section no-print action-bar"><div class="nn-row" style="padding:0">

@@ -64,11 +64,17 @@ export async function render(main, { q }) {
 export function openFaultUpdate(stop, phieu, onDone) {
   let tt = stop.tinh_trang, ns = stop.nguoi_xu_ly_id || (S.profile.vai_tro === 'ky_thuat' ? S.profile.id : ''), note = stop.ghi_chu_xu_ly || '';
   let ht = [...(stop.nguoi_ho_tro || [])];
-  const ppl = cat.nhanSu().map((n) => ({ value: n.id, label: n.ho_ten, sub: VAI_TRO[n.vai_tro], k: n.vai_tro === 'ky_thuat' ? 0 : 1 })).sort((a, b) => a.k - b.k || a.label.localeCompare(b.label, 'vi'));
+  // v1.12: chỉ gợi ý kỹ thuật + vận hành của máy đó (theo phân công ca của phiếu); "Xem tất cả" để chọn người làm thay
+  const xl = cat.nguoiXuLy({ ca_id: phieu.ca_id, may_id: stop.may_goc_id || phieu.may_id, day_chuyen_id: phieu.day_chuyen_id, nm: phieu.nha_may_id });
+  const toO = (n) => ({ value: n.id, label: n.ho_ten, sub: VAI_TRO[n.vai_tro] });
+  const nhom = xl.nhom.map(toO), tatCa = xl.tatCa.map(toO), ids = new Set(nhom.map((o) => o.value));
+  const ppl = [...nhom, ...tatCa.filter((o) => !ids.has(o.value))];
+  const ppl1 = [...nhom, ...(ns && !ids.has(ns) ? tatCa.filter((o) => o.value === ns) : [])];
   const body = el(`<div class="nn-stack" style="padding:0"><div><b>${esc(stop.ten_loi || '')}</b><div class="t-cap">${esc(cat.mayLabel(phieu.may_id))} · ${fmtDate(phieu.ngay)} · ${hm(stop.gio_bd)}–${hm(stop.gio_kt)}</div></div></div>`);
   body.append(
     selectField({ label: 'Tình trạng lỗi', value: tt, req: true, options: Object.entries(TINH_TRANG).map(([k, t]) => ({ value: k, label: t.label })), onChange: (v) => { tt = v; } }),
-    comboField({ label: 'Người xử lý chính', value: ns, options: ppl, onChange: (v) => { ns = v; } }),
+    comboField({ label: 'Người xử lý chính', value: ns, options: ppl1, msg: nhom.length ? 'Kỹ thuật + vận hành của máy này (theo phân công ca)' : '',
+      more: { label: 'Xem tất cả nhân sự (người làm thay)', options: () => tatCa }, onChange: (v) => { ns = v; } }),
     multiField({ label: 'Người hỗ trợ', value: ht, options: ppl, onChange: (v) => { ht = v; } }),
     textField({ label: 'Ghi chú xử lý', value: note, placeholder: 'Đã làm gì, thay vật tư gì, còn chờ gì…', onInput: (v) => { note = v; } }),
   );

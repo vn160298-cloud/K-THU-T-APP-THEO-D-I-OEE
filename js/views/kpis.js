@@ -80,11 +80,13 @@ export async function render(main, { q }) {
     const rows = data.filter((r) => ids.has(r.p.may_id) && bySp(r));
     const agg = aggregate(rows.map((r) => r.c));
     const days = daysBetween(st.from, st.to);
-    const withData = new Set(rows.map((r) => r.p.may_id)).size; // TEEP tính trên các máy có số liệu trong kỳ
+    // v1.12: máy kỹ thuật (phiếu tự tạo từ giao ca KT) không tính số phiếu / số máy / TEEP — chỉ góp vào MTBF, MTTR, Pareto
+    const rowsOEE = rows.filter((r) => !r.c.kt);
+    const withData = new Set(rowsOEE.map((r) => r.p.may_id)).size; // TEEP tính trên các máy có số liệu trong kỳ
     const T = teep(agg, days, withData);
     const plant = aggregate(data.filter(bySp).map((r) => r.c)); // OPE toàn nhà máy (hoặc toàn hệ thống)
     const par = pareto(rows.flatMap((r) => r.p.dung_may || []));
-    const nEntries = groupEntries(rows).length;
+    const nEntries = groupEntries(rowsOEE).length;
     $('[data-ph]', main).innerHTML = `<div class="pr-head"><img src="icons/logo.png" alt="NutriNest"><div class="pr-title">BÁO CÁO CHỈ SỐ OEE</div>
       <div class="t-cap" style="text-align:right">Lập lúc ${fmtDateTime(new Date())}<br>${esc(S.profile.ho_ten)}</div></div>
       <p>${filterSummary().map(([k, v]) => `<b>${esc(k)}:</b> ${esc(v)}`).join(' · ')}</p>`;
