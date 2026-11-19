@@ -42,6 +42,7 @@ export function calcPhieu(p, nguongNgan = 5) {
     L[6] += kd * ct;
   }
   return {
+    kt: !!p.giao_ca_id, // v1.12: phiếu tự tạo từ báo cáo giao ca Kỹ thuật
     caPhut, nghi, keHoach, ppt, stopLoss, run, ct, tong, good, kd, qt, ideal, goodTime, L,
     bdCount, bdMin, shortCount, stopCount, hasSpeed: ct != null,
     demSl: true, // aggregate chỉ cộng sản lượng của máy cuối chuyền (data.js đặt false cho các máy còn lại)
@@ -55,8 +56,10 @@ export function calcPhieu(p, nguongNgan = 5) {
 /** Gộp nhiều kết quả calcPhieu (trọng số theo thời gian) */
 export function aggregate(list) {
   const s = { n: list.length, ppt: 0, run: 0, pptS: 0, runS: 0, ideal: 0, goodTime: 0, tong: 0, good: 0, kd: 0, qt: 0,
-    bdCount: 0, bdMin: 0, stopCount: 0, stopLoss: 0, L: [0, 0, 0, 0, 0, 0, 0], missingSpeed: 0, invalid: 0 };
+    bdCount: 0, bdMin: 0, stopCount: 0, stopLoss: 0, L: [0, 0, 0, 0, 0, 0, 0], missingSpeed: 0, invalid: 0, runKT: 0 };
   for (const c of list) {
+    // v1.12: máy kỹ thuật (lò hơi, khí nén…) không có sản lượng: chỉ tính số lần dừng, MTBF, MTTR — không vào OEE, A, 6 tổn thất
+    if (c.kt) { s.runKT += c.run; s.bdCount += c.bdCount; s.bdMin += c.bdMin; s.stopCount += c.stopCount; continue; }
     s.ppt += c.ppt; s.run += c.run;
     if (c.demSl !== false) { s.tong += c.tong; s.good += c.good; s.kd += c.kd; s.qt += c.qt; }
     s.bdCount += c.bdCount; s.bdMin += c.bdMin; s.stopCount += c.stopCount; s.stopLoss += c.stopLoss;
@@ -70,7 +73,7 @@ export function aggregate(list) {
   s.P = s.runS > 0 ? s.ideal / s.runS : null;
   s.Q = s.ideal > 0 ? s.goodTime / s.ideal : (s.tong > 0 ? s.good / s.tong : null);
   s.OEE = s.pptS > 0 ? s.goodTime / s.pptS : null;
-  s.MTBF = s.bdCount > 0 ? s.run / s.bdCount : null;
+  s.MTBF = s.bdCount > 0 ? (s.run + s.runKT) / s.bdCount : null;
   s.MTTR = s.bdCount > 0 ? s.bdMin / s.bdCount : null;
   return s;
 }

@@ -34,10 +34,11 @@ export function nhomBoPhan() {
 }
 const NAV = () => {
   const nhom = nhomBoPhan();
-  const theoBp = nhom.flatMap(({ t, bp }) => [{ sep: t },
-    can.ghiPhieu() && { r: 'ghi-phieu', bp: bp.id, t: 'Phiếu ghi nhận OEE', i: 'plus' },
-    { r: 'giao-ca', bp: bp.id, t: 'Phiếu báo cáo giao ca', i: 'users' },
-    { r: 'danh-sach', bp: bp.id, t: 'Danh sách phiếu', i: 'list' }]);
+  // v1.12: mỗi nhóm là 1 mục lớn, bấm vào mới mở các mục con. Kỹ thuật: phiếu ghi nhận OEE gộp vào Phiếu báo cáo giao ca.
+  const theoBp = nhom.flatMap(({ t, i, bp }) => { const kt = cat.laKyThuat(bp.id); return [{ grp: bp.id, t, i },
+    !kt && can.ghiPhieu() && { r: 'ghi-phieu', bp: bp.id, g: bp.id, t: 'Phiếu ghi nhận OEE', i: 'plus' },
+    { r: 'giao-ca', bp: bp.id, g: bp.id, t: 'Phiếu báo cáo giao ca', i: 'users' },
+    { r: 'danh-sach', bp: bp.id, g: bp.id, t: 'Danh sách phiếu', i: 'list' }]; });
   return [
   { r: 'hom-nay', t: 'Hôm nay', i: 'home', tab: true },
   can.ghiPhieu() && { r: 'ghi-phieu', t: 'Ghi phiếu', i: 'plus', tab: true, an: nhom.length > 0 },
@@ -63,6 +64,15 @@ const NAV = () => {
 /** v1.10: các mục cho trang "Thêm" trên điện thoại (mọi mục không nằm ở thanh dưới) */
 export const navThem = () => NAV().filter((x) => !x.tab && x.r !== 'tai-khoan');
 const hrefOf = (it) => `#/${it.r}${it.bp ? `?bp=${it.bp}` : ''}`;
+/** v1.12: nhóm đang mở (Sản xuất / Đóng gói / Kỹ thuật). Nhóm chứa trang đang xem luôn mở. */
+export const moNhom = new Set();
+/** Vẽ danh sách menu có nhóm thu gọn: header = nút mở / đóng, mục con chỉ hiện khi nhóm mở */
+export function navHtml(items, { route, q, badge = () => '', aCls = '', grpCls = 'nav-grp' }) {
+  items.filter((it) => it.g && isActive(it, route, q)).forEach((it) => moNhom.add(it.g));
+  return items.filter((it) => !it.an && (!it.g || moNhom.has(it.g))).map((it) => (it.sep ? `<div class="nn-label">${esc(it.sep)}</div>`
+    : it.grp ? `<button type="button" class="${grpCls}" data-grp="${it.grp}" aria-expanded="${moNhom.has(it.grp)}">${icon(it.i, 20)}<span>${esc(it.t)}</span>${icon(moNhom.has(it.grp) ? 'chevD' : 'chevR', 18)}</button>`
+      : `<a href="${hrefOf(it)}" class="${aCls} ${it.g ? 'nav-sub' : ''} ${isActive(it, route, q) ? 'is-active' : ''}">${icon(it.i, 20)}<span>${esc(it.t)}</span>${badge(it)}${aCls ? icon('chevR', 18) : ''}</a>`)).join('');
+}
 const isActive = (it, route, q) => route === it.r && (it.bp ? q.bp === it.bp : !q.bp || it.tab);
 
 let faultCount = 0;
@@ -86,8 +96,8 @@ function drawNav() {
   };
   const side = $('#side');
   side.hidden = false;
-  side.innerHTML = items.filter((it) => !it.an).map((it) => (it.sep ? `<div class="nn-label">${esc(it.sep)}</div>`
-    : `<a href="${hrefOf(it)}" class="${isActive(it, route, q) ? 'is-active' : ''}">${icon(it.i, 20)}<span>${esc(it.t)}</span>${badge(it)}</a>`)).join('');
+  side.innerHTML = navHtml(items, { route, q, badge });
+  side.onclick = (e) => { const b = e.target.closest('[data-grp]'); if (!b) return; const k = b.dataset.grp; if (moNhom.has(k)) moNhom.delete(k); else moNhom.add(k); drawNav(); };
   const tabs = items.filter((x) => x.tab);
   const more = !tabs.some((t) => t.r === route) ;
   const tb = $('#tabbar');

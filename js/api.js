@@ -78,15 +78,17 @@ export const can = {
   boPhanRieng: () => ['van_hanh', 'to_truong'].includes(S.profile?.vai_tro) && !!S.profile?.bo_phan_id,
   /** v1.6: lập / nhận báo cáo giao ca */
   giaoCa: () => ['to_truong', 'quan_ly', 'admin'].includes(S.profile?.vai_tro),
+  /** v1.12: báo cáo giao ca Kỹ thuật — kỹ thuật viên cũng lập / nhận được */
+  giaoCaKT: () => ['to_truong', 'quan_ly', 'admin', 'ky_thuat'].includes(S.profile?.vai_tro),
   nhatKy: () => ['to_truong', 'quan_ly', 'admin'].includes(S.profile?.vai_tro),
 };
 
 // ---------- Danh mục ----------
 const TABLES = ['nha_may', 'bo_phan', 'khu_vuc', 'may', 'ma_loi', 'ly_do_ke_hoach', 'san_pham', 'toc_do', 'ca',
   'day_chuyen', 'day_chuyen_may', 'nhan_su', 'cai_dat', 'may_san_pham', 'day_chuyen_san_pham', 'toc_do_day_chuyen',
-  'day_chuyen_tong', 'phan_cong', 'loi_san_pham', 'kip', 'dinh_bien', 'quy_cach', 'ds_nhap_nhanh', 'quy_cach_tp', 'nhan_su_ca'];
+  'day_chuyen_tong', 'phan_cong', 'loi_san_pham', 'kip', 'dinh_bien', 'quy_cach', 'ds_nhap_nhanh', 'quy_cach_tp', 'nhan_su_ca', 'hang_muc_kt'];
 
-const OPTIONAL = ['day_chuyen_tong', 'phan_cong', 'loi_san_pham', 'kip', 'dinh_bien', 'quy_cach', 'ds_nhap_nhanh', 'quy_cach_tp', 'nhan_su_ca'];
+const OPTIONAL = ['day_chuyen_tong', 'phan_cong', 'loi_san_pham', 'kip', 'dinh_bien', 'quy_cach', 'ds_nhap_nhanh', 'quy_cach_tp', 'nhan_su_ca', 'hang_muc_kt'];
 
 async function fetchAll(table, build = (q) => q) {
   const out = [];
@@ -137,6 +139,18 @@ export const cat = {
   kip: (nm = S.nm) => sortCat((S.cat.kip || []).filter((k) => k.nha_may_id === nm && k.hoat_dong)),
   /** v1.6: bộ phận Đóng gói (tên chứa "đóng gói") -> phiếu có thêm ngày SX, lô, thùng, kíp SX, số phiếu kho */
   laDongGoi: (bpId) => /đóng gói|dong goi/i.test(S.cat.byId.bo_phan[bpId]?.ten || ''),
+  laKyThuat: (bpId) => /k[yỹ] thu[aậ]t/i.test(S.cat.byId.bo_phan[bpId]?.ten || ''),
+  /** v1.12: người xử lý lần dừng: kỹ thuật + vận hành được phân công máy / dây chuyền đó ở ca đó (chưa phân công kỹ thuật -> kỹ thuật của ca).
+   *  Trả về { nhom: [nhân sự], tatCa: [nhân sự] } */
+  nguoiXuLy: ({ ca_id, may_id, day_chuyen_id, nm = S.nm }) => {
+    const tatCa = S.cat.nhan_su.filter((n) => n.hoat_dong && (!n.nha_may_id || n.nha_may_id === nm));
+    const pc = (S.cat.phan_cong || []).filter((x) => x.ca_id === ca_id && ['ky_thuat', 'van_hanh'].includes(x.vai_tro)
+      && ((may_id && x.may_id === may_id) || (day_chuyen_id && x.day_chuyen_id === day_chuyen_id) || (may_id && x.day_chuyen_id && cat.linesOfMay(may_id).some((l) => l.id === x.day_chuyen_id))));
+    const ids = new Set(pc.map((x) => x.nhan_su_id));
+    if (!pc.some((x) => x.vai_tro === 'ky_thuat')) tatCa.filter((n) => n.vai_tro === 'ky_thuat' && (!ca_id || !n.ca_id || n.ca_id === ca_id)).forEach((n) => ids.add(n.id));
+    const nhom = tatCa.filter((n) => ids.has(n.id)).sort((a, b) => (a.vai_tro === 'ky_thuat' ? 0 : 1) - (b.vai_tro === 'ky_thuat' ? 0 : 1) || a.ho_ten.localeCompare(b.ho_ten, 'vi'));
+    return { nhom, tatCa: tatCa.sort((a, b) => (a.vai_tro === 'ky_thuat' ? 0 : 1) - (b.vai_tro === 'ky_thuat' ? 0 : 1) || a.ho_ten.localeCompare(b.ho_ten, 'vi')) };
+  },
   /** v1.4: danh mục lỗi sản phẩm của 1 sản phẩm */
   loiSp: (spId, all = false) => sortCat((S.cat.loi_san_pham || []).filter((l) => l.san_pham_id === spId && (all || l.hoat_dong))),
   lyDo: () => S.cat.ly_do_ke_hoach.filter((l) => l.nha_may_id === S.nm && l.hoat_dong),
@@ -229,7 +243,7 @@ export async function getPhieu(id) {
 
 export async function fetchOpenFaults() {
   const { data, error } = await sb.from('dung_may')
-    .select('*, phieu!inner(id, ngay, ca_id, may_id, nha_may_id, trang_thai, created_at, nguoi_van_hanh_id, gio_bd, day_chuyen_id, nhom_id)')
+    .select('*, phieu!inner(id, ngay, ca_id, may_id, nha_may_id, trang_thai, created_at, nguoi_van_hanh_id, gio_bd, day_chuyen_id, nhom_id, giao_ca_id)')
     .eq('goc', true).eq('phieu.nha_may_id', S.nm).neq('tinh_trang', 'da_xu_ly').order('created_at', { ascending: false }).limit(1000);
   if (error) throw error;
   return data;
@@ -237,7 +251,7 @@ export async function fetchOpenFaults() {
 
 export async function fetchFaults({ from, to }) {
   const { data, error } = await sb.from('dung_may')
-    .select('*, phieu!inner(id, ngay, ca_id, may_id, nha_may_id, trang_thai, created_at, nguoi_van_hanh_id, gio_bd, day_chuyen_id, nhom_id)')
+    .select('*, phieu!inner(id, ngay, ca_id, may_id, nha_may_id, trang_thai, created_at, nguoi_van_hanh_id, gio_bd, day_chuyen_id, nhom_id, giao_ca_id)')
     .eq('goc', true).eq('phieu.nha_may_id', S.nm).gte('phieu.ngay', from).lte('phieu.ngay', to).order('created_at', { ascending: false }).limit(5000);
   if (error) throw error;
   return data;
