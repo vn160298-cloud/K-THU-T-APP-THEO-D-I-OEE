@@ -36,7 +36,7 @@ const NAV = () => {
   const nhom = nhomBoPhan();
   // v1.12: mỗi nhóm là 1 mục lớn, bấm vào mới mở các mục con. Kỹ thuật: phiếu ghi nhận OEE gộp vào Phiếu báo cáo giao ca.
   const theoBp = nhom.flatMap(({ t, i, bp }) => { const kt = cat.laKyThuat(bp.id); return [{ grp: bp.id, t, i },
-    !kt && can.ghiPhieu() && { r: 'ghi-phieu', bp: bp.id, g: bp.id, t: 'Phiếu ghi nhận OEE', i: 'plus' },
+    !kt && can.ghiPhieu() && { r: 'ghi-phieu', bp: bp.id, g: bp.id, t: 'Phiếu ghi nhận vận hành máy', i: 'plus' },
     { r: 'giao-ca', bp: bp.id, g: bp.id, t: 'Phiếu báo cáo giao ca', i: 'users' },
     { r: 'danh-sach', bp: bp.id, g: bp.id, t: 'Danh sách phiếu', i: 'list' }]; });
   return [

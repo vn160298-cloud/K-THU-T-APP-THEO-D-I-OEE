@@ -1,5 +1,5 @@
 // Công thức OEE, TEEP, OPE, MTBF, MTTR, Six Big Losses — xem DAC_TA_APP.md mục 5
-import { minutesBetween } from './lib.js';
+import { minutesBetween, giaoPhut } from './lib.js';
 
 /**
  * Tính chỉ số cho 1 phiếu (phiếu của 1 máy; phiếu con của dây chuyền cũng tính như phiếu máy).
@@ -12,7 +12,8 @@ import { minutesBetween } from './lib.js';
 export function calcPhieu(p, nguongNgan = 5) {
   const caPhut = minutesBetween(p.gio_bd, p.gio_kt);
   const nghi = +p.nghi_phut || 0;
-  const keHoach = (p.dung_ke_hoach || p.ke_hoach || []).reduce((s, k) => s + (k.phut ?? minutesBetween(k.gio_bd, k.gio_kt)), 0);
+  // v1.13: khoảng nghỉ / dừng kế hoạch chỉ trừ phần trùng với giờ chạy của phiếu (mỗi dây chuyền / máy có giờ riêng)
+  const keHoach = (p.dung_ke_hoach || p.ke_hoach || []).reduce((s, k) => s + (k.phut ?? giaoPhut(p.gio_bd, p.gio_kt, k.gio_bd, k.gio_kt)), 0);
   const ppt = Math.max(0, caPhut - nghi - keHoach);
   const L = [0, 0, 0, 0, 0, 0, 0]; // L[1..6]
   let bdCount = 0, bdMin = 0, shortCount = 0, stopCount = 0, totalStop = 0;

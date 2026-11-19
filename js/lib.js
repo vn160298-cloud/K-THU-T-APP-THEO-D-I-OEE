@@ -53,6 +53,14 @@ export const by = (k) => (a, b) => (a[k] ?? 0) > (b[k] ?? 0) ? 1 : (a[k] ?? 0) <
 export const sortCat = (arr) => [...arr].sort((a, b) => (a.thu_tu ?? 0) - (b.thu_tu ?? 0) || String(a.ma ?? a.ten).localeCompare(String(b.ma ?? b.ten), 'vi', { numeric: true }));
 /** Số kiểu Việt Nam: dấu chấm phân cách hàng nghìn, dấu phẩy thập phân.
  *  "1.234,5" -> 1234.5 · "12,5" -> 12.5 · "1.500" -> 1500 · "1.5" -> 1.5 (một dấu chấm không theo nhóm 3 số = thập phân) */
+/** v1.13: số phút khoảng [bBd, bKt] nằm trong giờ chạy [aBd, aKt] (kể cả ca qua đêm) — giống public.giao_phut() trên máy chủ */
+export const giaoPhut = (aBd, aKt, bBd, bKt) => {
+  if (!aBd || !aKt || !bBd || !bKt) return 0;
+  const dur = minutesBetween(aBd, aKt), len = minutesBetween(bBd, bKt);
+  let s0 = minutesBetween(aBd, bBd);
+  if (s0 > dur && s0 + len > 1440) s0 -= 1440;
+  return Math.max(0, Math.min(s0 + len, dur) - Math.max(s0, 0));
+};
 export const toNum = (v) => {
   if (v === '' || v == null) return null;
   if (typeof v === 'number') return isFinite(v) ? v : null;
