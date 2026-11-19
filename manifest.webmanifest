@@ -1,7 +1,7 @@
 {
-  "name": "KỸ THUẬT - THEO DÕI OEE",
-  "short_name": "OEE Kỹ thuật",
-  "description": "Ghi nhận vận hành thiết bị và theo dõi OEE — NutriNest",
+  "name": "NutriNest Báo cáo sản xuất",
+  "short_name": "Báo cáo SX",
+  "description": "Phiếu ghi nhận vận hành máy, báo cáo giao ca và chỉ số OEE của các bộ phận nhà máy — NutriNest",
   "lang": "vi",
   "start_url": "./index.html",
   "scope": "./",
