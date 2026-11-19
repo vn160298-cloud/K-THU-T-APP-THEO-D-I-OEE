@@ -66,7 +66,7 @@ export async function render(main) {
         <div><div class="t-h3" style="margin-bottom:8px">Top 10 lỗi dừng máy</div><div class="nn-table-wrap"><table class="nn-table"><thead><tr><th>Lỗi</th><th class="num">Lần</th><th class="num">Phút</th><th class="num">Lũy kế</th></tr></thead><tbody>
           ${par.slice(0, 10).map((r) => `<tr><td class="wrap"><span class="nn-mono">${esc(r.ma || '')}</span> ${esc(r.ten)}</td><td class="num">${r.lan}</td><td class="num">${fmtNum(r.phut)}</td><td class="num">${fmtPct(r.luyKe, 0)}</td></tr>`).join('') || '<tr><td colspan="4" class="muted">Không có</td></tr>'}</tbody></table></div></div>
       </div>` : '<div class="empty">Không có phiếu trong kỳ</div>'}
-      <div class="t-cap" style="margin-top:12px">Lập lúc ${fmtDateTime(new Date())} bởi ${esc(S.profile.ho_ten)} · KỸ THUẬT - THEO DÕI OEE</div></div>`;
+      <div class="t-cap" style="margin-top:12px">Lập lúc ${fmtDateTime(new Date())} bởi ${esc(S.profile.ho_ten)} · NutriNest Báo cáo sản xuất</div></div>`;
   }
 
   main.onclick = (e) => {

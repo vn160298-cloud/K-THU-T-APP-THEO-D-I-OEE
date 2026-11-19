@@ -7,7 +7,7 @@ export function render(main) {
   $('#side').hidden = true; $('#tabbar').hidden = true;
   main.innerHTML = '';
   const card = el(`<form class="card login nn-stack" style="padding:24px" novalidate>
-    <div><div class="t-page">Đăng nhập</div><p class="muted" style="margin:4px 0 0">Theo dõi OEE · Bộ phận Kỹ thuật</p></div>
+    <div><div class="t-page">Đăng nhập</div><p class="muted" style="margin:4px 0 0">NutriNest Báo cáo sản xuất · Phiếu vận hành, giao ca các bộ phận</p></div>
     <div data-f></div>
     <div class="nn-alert nn-alert-danger" role="alert" hidden data-err><span class="nn-alert-icon nn-tone-danger">${icon('fail', 20)}</span>
       <div class="nn-alert-body"><div class="nn-alert-text" data-errt></div></div></div>

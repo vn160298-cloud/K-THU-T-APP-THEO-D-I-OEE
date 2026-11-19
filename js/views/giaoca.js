@@ -97,6 +97,8 @@ async function tuPhieu(g) {
     const { p, c } = e.rep;
     const sp = cat.name('san_pham', p.san_pham_id) || 'Chưa chọn sản phẩm', ten = entryLabel(e);
     if (!dg) ns.push({ nd: `${sp} — ${ten}`, ke_hoach: p.sl_ke_hoach ?? null, hoan_thanh: c.good ?? null });
+    // v1.13: phiếu Đóng gói có sản lượng theo sản phẩm / lô / xe -> chép sang Năng suất
+    else for (const r of p.sl_dg || []) ns.push({ ngay_sx: r.ngay_sx || g.ngay, ma_sp: r.ma_sp || '', ma_lo: r.ma_lo || '', stt_xe: r.stt_xe || '', kip_sx: r.kip_sx || '', ma_tp: r.ma_tp || '', thung: r.thung ?? null, le: r.le ?? null });
     const loi = (p.loi_sp || []).length ? p.loi_sp : ((+p.sl_loi_kd || 0) + (+p.sl_loi_qt || 0) ? [{ ten: 'Lỗi (chưa phân loại)', so_luong: (+p.sl_loi_kd || 0) + (+p.sl_loi_qt || 0) }] : []);
     const maSp = S.cat.byId.san_pham[p.san_pham_id]?.ma || '';
     for (const x of loi) cl.push({ gd: gdOf(dg)[1], sp: maSp, loi: x.ten === 'Lỗi (chưa phân loại)' ? 'Lỗi (chưa phân loại) — từ phiếu' : x.ten, sl: x.so_luong, ghi_chu: x.ghi_chu || '' });
@@ -104,7 +106,7 @@ async function tuPhieu(g) {
       mm.push({ tb: cat.mayLabel(ch.p.may_id), loi: s.ten_loi || '', gio: `${hm(s.gio_bd)}–${hm(s.gio_kt)}`, phut: s.phut ?? null, xu_ly: TINH_TRANG[s.tinh_trang]?.label || '' });
     }
   }
-  return { nang_suat: dg ? null : ns, chat_luong: cl, may_moc: mm, so_phieu: groupEntries(rows).length };
+  return { nang_suat: dg && !ns.length ? null : ns, chat_luong: cl, may_moc: mm, so_phieu: groupEntries(rows).length };
 }
 
 // ================= LẬP / XEM BÁO CÁO =================
@@ -300,7 +302,7 @@ async function editor(main, id, bp0 = '') {
       nmField(),
     );
     if (canEdit) head.append(el(`<div class="nn-field span-2"><button class="nn-btn nn-btn-secondary nn-btn-md" data-fill>${icon('sync', 18)}Lấy số từ phiếu ghi nhận vận hành của ca này</button>
-      <span class="nn-field-msg">Tự điền ${dg ? 'Chất lượng, Máy móc' : 'Năng suất, Chất lượng, Máy móc'} từ các phiếu đã ghi (đúng bộ phận, ngày, ca, kíp). Sửa / thêm dòng được sau đó.</span></div>`));
+      <span class="nn-field-msg">Tự điền Năng suất, Chất lượng, Máy móc từ các phiếu đã ghi (đúng bộ phận, ngày, ca, kíp). Sửa / thêm dòng được sau đó.</span></div>`));
     $$('[data-head] input, [data-head] select', main).forEach((x) => { x.disabled = !canEdit; });
 
     // --- bảng

@@ -23,8 +23,8 @@ export async function render(main, { params }) {
       <button class="nn-btn nn-btn-primary nn-btn-lg" data-print>${icon('print', 18)}In / Lưu PDF</button>
       <span class="t-cap">Chọn máy in "Lưu thành PDF" để xuất file PDF</span></div>
     <div class="card" style="padding:20px">
-      <div class="pr-head"><img src="icons/logo.png" alt="NutriNest"><div class="pr-title">PHIẾU GHI NHẬN VẬN HÀNH THIẾT BỊ HẰNG NGÀY</div>
-        <div class="t-cap" style="text-align:right">${esc(cat.name('nha_may', p.nha_may_id))}<br>Bộ phận Kỹ thuật</div></div>
+      <div class="pr-head"><img src="icons/logo.png" alt="NutriNest"><div class="pr-title">PHIẾU GHI NHẬN VẬN HÀNH MÁY</div>
+        <div class="t-cap" style="text-align:right">${esc(cat.name('nha_may', p.nha_may_id))}<br>${esc(cat.name('bo_phan', p.bo_phan_id) || '')}</div></div>
       <div class="nn-table-wrap"><table class="nn-table"><tbody>
         ${isGroup
           ? `<tr><th>Dây chuyền</th><td colspan="3">${esc(line?.ten || '')}</td><th>Các máy</th><td>${cat.members(rows[0].day_chuyen_id).map((x) => esc(cat.name('may', x.may_id, 'ma'))).join(' → ')}</td></tr>`
@@ -56,7 +56,7 @@ export async function render(main, { params }) {
         <div><b>Tổ trưởng</b><br><span class="t-cap">${esc(cat.person(p.to_truong_id))}${p.xac_nhan_luc ? `<br>Đã xác nhận ${fmtDateTime(p.xac_nhan_luc)}` : ''}</span></div>
         <div><b>Kỹ thuật</b><br><span class="t-cap">${esc(cat.person(p.ky_thuat_id))}</span></div>
       </div>
-      <div class="t-cap" style="margin-top:12px">In lúc ${fmtDateTime(new Date())} · KỸ THUẬT - THEO DÕI OEE</div>
+      <div class="t-cap" style="margin-top:12px">In lúc ${fmtDateTime(new Date())} · NutriNest Báo cáo sản xuất</div>
     </div>`;
   main.onclick = (e) => { if (e.target.closest('[data-print]')) window.print(); };
 }

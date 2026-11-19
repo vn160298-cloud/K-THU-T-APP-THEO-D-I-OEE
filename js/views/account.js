@@ -29,7 +29,7 @@ export async function render(main, { route }) {
     <section class="nn-row section" style="padding:0">
       <button class="nn-btn nn-btn-secondary nn-btn-lg" data-update>${icon('sync', 18)}Tải lại dữ liệu & bản mới</button>
       <button class="nn-btn nn-btn-danger nn-btn-lg" data-logout>${icon('logout', 18)}Đăng xuất</button></section>
-    <p class="t-cap">KỸ THUẬT - THEO DÕI OEE · phiên bản ${APP_VERSION}</p>`;
+    <p class="t-cap">NutriNest Báo cáo sản xuất · phiên bản ${APP_VERSION}</p>`;
 
   // v1.12: trang Thêm — nhóm Sản xuất / Đóng gói / Kỹ thuật bấm vào mới mở mục con
   const them = $('[data-them]', main);

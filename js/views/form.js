@@ -4,13 +4,14 @@ import { drafts, queue, lsSet } from '../store.js';
 import { calcPhieu } from '../kpi.js';
 import {
   esc, icon, uuid, today, nowHM, hm, fmtDate, fmtNum, fmtPct, fmtMin, minutesBetween, timeInRange, toNum, toInt,
-  NHOM_TT, TINH_TRANG, MUC_DO, LOI_KHAC, mucDoBadge, ttBadge, phieuBadge, oeeBadge, debounce, fmtDateTime, VAI_TRO, isLoiKhac, sortCat,
+  NHOM_TT, TINH_TRANG, MUC_DO, LOI_KHAC, mucDoBadge, ttBadge, phieuBadge, oeeBadge, debounce, fmtDateTime, VAI_TRO, isLoiKhac, sortCat, giaoPhut,
 } from '../lib.js';
 import {
   el, $, $$, toast, confirmBox, inputField, selectField, comboField, dateField, textField, kpiCard, segmented, timeField, openSheet, multiField,
 } from '../ui.js';
 import { go, drawHeader } from '../app.js';
 import { openFaultUpdate, shareZalo } from './faults.js';
+import { slTable, tongChai, tocDoHieuDung, dongLuu, tinhDong, spIdOf } from './sl_dg.js';
 
 export async function render(main, { route, params, q = {} }) {
   if (route === 'phieu') {
@@ -89,6 +90,10 @@ const toDraft = (p) => ({
   ke_hoach: (p.dung_ke_hoach || []).map((k) => ({ ly_do_id: k.ly_do_id, ly_do_ten: k.ly_do_ten, gio_bd: hm(k.gio_bd), gio_kt: hm(k.gio_kt) })),
   dung_may: (p.dung_may || []).filter((s) => s.goc !== false).sort((a, b) => a.stt - b.stt).map(stopToDraft),
   loi_sp: loiSpToDraft(p),
+  // v1.13: Đóng gói — nhiều sản phẩm, sản lượng theo dòng
+  sl_dg: (p.sl_dg || []).map(({ tong_sku, tong_chai, toc_do, san_pham_id, ...r }) => r),
+  sp_ds: [...new Set([p.san_pham_id, ...(p.sl_dg || []).map((r) => r.san_pham_id)].filter(Boolean))],
+  toc_do_sp: Object.fromEntries((p.sl_dg || []).filter((r) => r.san_pham_id && r.toc_do).map((r) => [r.san_pham_id, r.toc_do])),
 });
 
 // v1.4: lỗi sản phẩm theo từng loại. Phiếu cũ (chỉ có 2 số lỗi khởi động / quá trình) chuyển thành 1 dòng "Lỗi khác".
@@ -109,10 +114,14 @@ function toDraftMulti(gid, rows) {
     const line = g[0].day_chuyen_id && g[0].nhom_id;
     const rep = line ? (g.find((r) => r.may_id === cat.lastMay(g[0].day_chuyen_id)) || g[0]) : g[0];
     const raw = line ? g[0].day_chuyen_id : g[0].may_id;
-    muc.push({ key: line ? `dc:${raw}` : `m:${raw}`, tong_sl: rep.tong_sl, sl_loi_qt: (+rep.sl_loi_kd || 0) + (+rep.sl_loi_qt || 0), toc_do_dm: rep.toc_do_dm, bo_may: [] });
+    muc.push({ key: line ? `dc:${raw}` : `m:${raw}`, tong_sl: rep.tong_sl, sl_loi_qt: (+rep.sl_loi_kd || 0) + (+rep.sl_loi_qt || 0), toc_do_dm: rep.toc_do_dm, bo_may: [],
+      gio_bd: hm(rep.gio_bd), gio_kt: hm(rep.gio_kt), nguoi_van_hanh_id: rep.nguoi_van_hanh_id || '',
+      sl_dg: (rep.sl_dg || []).map(({ tong_sku, tong_chai, toc_do, san_pham_id, ...r }) => r),
+      toc_do_sp: Object.fromEntries((rep.sl_dg || []).filter((r) => r.san_pham_id && r.toc_do).map((r) => [r.san_pham_id, r.toc_do])) });
     for (const r of g) for (const x of (r.dung_may || []).filter((y) => y.goc !== false)) stops.push({ ...stopToDraft(x), muc: raw, may_id: line ? r.may_id : '', ca_chuyen: true });
   }
   const d = toDraft(rows[0]);
+  d.sp_ds = [...new Set([...d.sp_ds, ...rows.flatMap((r) => [r.san_pham_id, ...(r.sl_dg || []).map((x) => x.san_pham_id)])].filter(Boolean))];
   Object.assign(d, { id: gid, multi: true, muc, may_id: '', day_chuyen_id: '', bo_may: [], tong_sl: null,
     dung_may: stops.sort((a, b) => (a.gio_bd > b.gio_bd ? 1 : -1)).map((x, i) => ({ ...x, stt: i + 1 })) });
   return d;
@@ -158,6 +167,10 @@ function form(main, d) {
   // Nháp lưu từ bản trước 1.4 chưa có danh sách lỗi sản phẩm
   if (!Array.isArray(d.loi_sp)) d.loi_sp = loiSpToDraft(d);
   d.ke_hoach ||= [];
+  // v1.13: Đóng gói chọn nhiều sản phẩm; sản lượng nhập theo dòng (sản phẩm / lô / xe); tốc độ nhập tạm theo sản phẩm khi danh mục chưa có
+  if (!Array.isArray(d.sp_ds)) d.sp_ds = d.san_pham_id ? [d.san_pham_id] : [];
+  d.sl_dg ||= []; d.toc_do_sp ||= {};
+  (d.muc || []).forEach((m) => { m.sl_dg ||= []; m.toc_do_sp ||= {}; });
   const ngan = cat.caiDat().nguong_dung_ngan || 5;
   const save = debounce(() => { const s = drafts.put(d); saveDraftServer(s); $('[data-saved]', main) && ($('[data-saved]', main).textContent = `Đã tự lưu lúc ${nowHM()}`); }, 500);
   const changed = () => { save(); preview(); };
@@ -197,6 +210,58 @@ function form(main, d) {
     if (!d.to_truong_id && tt.length >= 1) d.to_truong_id = tt[0].id;
   };
   const dvt = () => S.cat.byId.san_pham[d.san_pham_id]?.dvt || 'sp';
+  /** v1.13: phiếu của bộ phận Đóng gói (theo bộ phận chọn, hoặc theo máy đã chọn) */
+  const bpCua = () => d.bo_phan_id || (() => {
+    const k = d.multi ? d.muc[0]?.key : targetValue(); if (!k) return '';
+    return S.cat.byId.may[k.startsWith('dc:') ? cat.lastMay(k.slice(3)) : k.slice(2)]?.bo_phan_id || '';
+  })();
+  const laDG = () => cat.laDongGoi(bpCua());
+  const spdSingle = (sp) => cat.speedFor(target(), sp) ?? d.toc_do_sp[sp] ?? null;
+  const spdMuc = (m) => (sp) => cat.speedFor(tOf(m.key), sp) ?? m.toc_do_sp?.[sp] ?? null;
+  /** Tổng SL + tốc độ hiệu dụng của 1 dây chuyền / máy Đóng gói */
+  const dgSo = (rows, speed) => { const tong = tongChai(rows); const t = tocDoHieuDung(rows, speed);
+    return { tong, v: t.v ?? (tong ? null : speed(d.sp_ds[0]) ?? null), thieu: t.thieu }; };
+  const mucGio = (m) => ({ bd: m.gio_bd || d.gio_bd, kt: m.gio_kt || d.gio_kt });
+  const LY_DO_NGHI = ['Nghỉ giữa ca', 'Họp đầu ca', 'Vệ sinh đầu / cuối ca', 'Bảo trì định kỳ', 'Không có đơn hàng', 'Chờ vật tư'];
+  /** Ô tốc độ định mức theo từng sản phẩm (danh mục có thì khóa, chưa có thì nhập tạm) */
+  function tocDoBox(tk, store, onDone) {
+    const box = el(`<div class="nn-field span-2"><span class="nn-label req">Tốc độ định mức theo sản phẩm</span><div class="nn-stack" style="padding:0;gap:4px"></div></div>`);
+    const st = $('.nn-stack', box);
+    if (!d.sp_ds.length) st.append(el('<span class="t-cap">Chọn sản phẩm ở phần Thông tin chung</span>'));
+    for (const sp of d.sp_ds) {
+      const dm = cat.speedFor(tk, sp); const p = S.cat.byId.san_pham[sp];
+      const r = el(`<div class="nn-row" style="padding:0;gap:8px;align-items:center;flex-wrap:nowrap"><span style="flex:1">${esc(p?.ten || '')}</span>
+        <div class="nn-input-wrap nn-input-md" style="width:150px"><input class="nn-input" inputmode="decimal" value="${esc(dm ?? store[sp] ?? '')}" ${dm != null ? 'readonly' : ''}><span class="nn-input-unit">${esc(p?.dvt || 'sp')}/phút</span></div>
+        <span class="t-cap" style="width:90px">${dm != null ? 'theo danh mục' : 'nhập tạm'}</span></div>`);
+      if (dm == null) $('input', r).oninput = (e) => { store[sp] = toNum(e.target.value); onDone(); };
+      st.append(r);
+    }
+    return box;
+  }
+  /** Khoảng nghỉ / dừng có kế hoạch (từ giờ – đến giờ). Mỗi dây chuyền / máy chỉ trừ phần trùng với giờ chạy của nó. */
+  function keHoachBox() {
+    const box = el(`<div class="nn-field span-2"><span class="nn-label">Nghỉ / dừng có kế hoạch (từ giờ – đến giờ)</span><div class="nn-stack" style="padding:0;gap:6px" data-kh></div>
+      <datalist id="dl-nghi">${LY_DO_NGHI.map((x) => `<option value="${esc(x)}">`).join('')}</datalist>
+      <button type="button" class="nn-btn nn-btn-ghost nn-btn-sm" data-addkh style="align-self:flex-start">${icon('plus', 16)}Thêm khoảng nghỉ / dừng</button>
+      <span class="nn-field-msg">Dây chuyền / máy nào chạy trùng khoảng này thì OEE tự trừ phần trùng; không chạy trong khoảng đó thì không trừ.</span></div>`);
+    const ve = () => {
+      const kh = $('[data-kh]', box); kh.innerHTML = '';
+      if (!d.ke_hoach.length) kh.append(el('<span class="t-cap">Chưa có — VD Nghỉ giữa ca 11:30 – 12:00</span>'));
+      d.ke_hoach.forEach((k, i) => {
+        const r = el(`<div class="nn-row" style="padding:0;gap:8px;align-items:flex-end;flex-wrap:wrap"></div>`);
+        const ly = el(`<div class="nn-field" style="flex:1;min-width:160px"><span class="nn-label">Lý do</span><div class="nn-input-wrap nn-input-md"><input class="nn-input" list="dl-nghi" value="${esc(k.ly_do_ten || '')}" placeholder="Chọn hoặc gõ"></div></div>`);
+        $('input', ly).oninput = (e) => { k.ly_do_ten = e.target.value; changed(); };
+        const rm = el(`<button type="button" class="nn-btn nn-btn-ghost nn-btn-sm" aria-label="Bỏ khoảng này">${icon('x', 16)}</button>`);
+        rm.onclick = () => { d.ke_hoach.splice(i, 1); ve(); changed(); };
+        r.append(timeField({ label: 'Từ', value: k.gio_bd || '', size: 'md', onInput: (v) => { k.gio_bd = v; changed(); } }),
+          timeField({ label: 'Đến', value: k.gio_kt || '', size: 'md', onInput: (v) => { k.gio_kt = v; changed(); } }), ly, rm);
+        kh.append(r);
+      });
+    };
+    $('[data-addkh]', box).onclick = () => { d.ke_hoach.push({ gio_bd: '', gio_kt: '', ly_do_ten: d.ke_hoach.length ? '' : 'Nghỉ giữa ca' }); ve(); changed(); };
+    ve();
+    return box;
+  }
   if (!Array.isArray(d.bo_may)) d.bo_may = [];
   const running = () => members().filter((x) => !d.bo_may.includes(x.may_id));
 
@@ -237,7 +302,8 @@ function form(main, d) {
 
   function build() {
     const locked = d._trang_thai === 'da_xac_nhan';
-    main.innerHTML = `<div class="page-head"><div><div class="t-page">${d._edit ? 'Sửa phiếu' : 'Phiếu ghi nhận vận hành'}</div>
+    (d.muc || []).forEach((m) => { m.sl_dg ||= []; m.toc_do_sp ||= {}; });
+    main.innerHTML = `<div class="page-head"><div><div class="t-page">${d._edit ? 'Sửa phiếu ghi nhận vận hành máy' : 'Phiếu ghi nhận vận hành máy'}</div>
       <div class="t-cap" data-saved>${d._savedAt ? `Đã tự lưu lúc ${fmtDateTime(d._savedAt).slice(11)}` : 'Tự lưu khi nhập'}</div></div>
       <a class="nn-btn nn-btn-ghost nn-btn-md" href="#/ghi-phieu">${icon('chevL', 18)}Danh sách nháp</a></div>
       ${d._error ? `<div class="nn-alert nn-alert-danger section" role="alert"><span class="nn-alert-icon nn-tone-danger">${icon('fail', 20)}</span><div class="nn-alert-body"><div class="nn-alert-title">Lần gửi trước bị từ chối</div><div class="nn-alert-text">${esc(d._error)}</div></div></div>` : ''}
@@ -294,12 +360,15 @@ function form(main, d) {
       $('input', mt).onchange = (e) => {
         if (e.target.checked) {
           const v = targetValue();
-          Object.assign(d, { multi: true, muc: v ? [{ key: v, tong_sl: d.tong_sl, sl_loi_qt: d.sl_loi_qt || 0, toc_do_dm: d.toc_do_dm, bo_may: [] }] : [], may_id: '', day_chuyen_id: '', bo_may: [] });
+          Object.assign(d, { multi: true, muc: v ? [{ key: v, tong_sl: d.tong_sl, sl_loi_qt: d.sl_loi_qt || 0, toc_do_dm: d.toc_do_dm, bo_may: [],
+            nguoi_van_hanh_id: d.nguoi_van_hanh_id || '', sl_dg: d.sl_dg, toc_do_sp: { ...d.toc_do_sp } }] : [], may_id: '', day_chuyen_id: '', bo_may: [] });
+          d.sl_dg = [];
           d.dung_may.forEach((x) => { x.muc = v ? v.slice(v.indexOf(':') + 1) : ''; if (v.startsWith('m:')) x.may_id = ''; });
         } else {
           const m0 = (d.muc || [])[0];
           Object.assign(d, { multi: false, day_chuyen_id: m0?.key.startsWith('dc:') ? m0.key.slice(3) : '', may_id: m0?.key.startsWith('m:') ? m0.key.slice(2) : '',
-            tong_sl: m0?.tong_sl ?? null, sl_loi_qt: m0?.sl_loi_qt || 0, toc_do_dm: m0?.toc_do_dm ?? null, muc: [] });
+            tong_sl: m0?.tong_sl ?? null, sl_loi_qt: m0?.sl_loi_qt || 0, toc_do_dm: m0?.toc_do_dm ?? null, muc: [],
+            sl_dg: m0?.sl_dg || [], toc_do_sp: m0?.toc_do_sp || {}, nguoi_van_hanh_id: m0?.nguoi_van_hanh_id || d.nguoi_van_hanh_id });
           d.dung_may.forEach((x) => { clearFault(x); x.may_id = ''; });
         }
         changed(); build();
@@ -370,7 +439,7 @@ function form(main, d) {
           if (k?.ca_id && S.cat.byId.ca[k.ca_id]) { d.ca_id = k.ca_id; applyCa(); applyPeople(); } else if (!d.ca_id) pickDefaultCa();
           changed(); build();
         } }),
-      comboField({ label: 'Sản phẩm', value: d.san_pham_id, req: true, options: cat.sanPhamFor(target()).map((s) => ({ value: s.id, label: s.ten, sub: s.dvt ? `${s.ma} · ${s.dvt}` : s.ma })),
+      laDG() ? spNhieu() : comboField({ label: 'Sản phẩm', value: d.san_pham_id, req: true, options: cat.sanPhamFor(target()).map((s) => ({ value: s.id, label: s.ten, sub: s.dvt ? `${s.ma} · ${s.dvt}` : s.ma })),
         msg: !(d.may_id || d.day_chuyen_id) ? ''
           : cat.coGanSanPham(target()) ? `Chỉ hiện sản phẩm đã khai cho ${isLine() ? 'dây chuyền' : 'máy'} này`
             : `Chưa khai sản phẩm cho ${isLine() ? 'dây chuyền' : 'máy'} này nên đang hiện tất cả — Admin khai ở Danh mục → Sản phẩm → Máy chạy`,
@@ -385,36 +454,64 @@ function form(main, d) {
         } }),
     );
     const fixedSpeed = (d.may_id || d.day_chuyen_id) && d.san_pham_id && cat.speedFor(target(), d.san_pham_id) != null;
-    if (!d.multi) g1.append(inputField({ label: 'Tốc độ định mức', value: d.toc_do_dm ?? '', unit: `${dvt()}/phút`, num: 'dec', readonly: !!fixedSpeed, req: true,
+    if (!d.multi && !laDG()) g1.append(inputField({ label: 'Tốc độ định mức', value: d.toc_do_dm ?? '', unit: `${dvt()}/phút`, num: 'dec', readonly: !!fixedSpeed, req: true,
       msg: fixedSpeed ? `Tự điền theo ${isLine() ? 'dây chuyền' : 'máy'} và sản phẩm` : `Chưa khai báo tốc độ cho ${isLine() ? 'dây chuyền' : 'máy'} + sản phẩm này — nhập tạm hoặc báo Admin`,
       onInput: (v) => { d.toc_do_dm = toNum(v); changed(); } }));
     g1.append(
-      peopleField('Người vận hành', 'nguoi_van_hanh_id', 'van_hanh'),
+      // v1.13: ghi chung -> người vận hành chọn riêng cho từng dây chuyền / máy; người đang đăng nhập là người ghi đại diện
+      d.multi ? el(`<div class="nn-field"><span class="nn-label">Người ghi phiếu (đại diện)</span><span class="chip dept" style="height:40px">${esc(S.profile.ho_ten)}</span>
+        <span class="nn-field-msg">Người vận hành chọn riêng cho từng dây chuyền / máy ở phần sản lượng</span></div>`)
+        : peopleField('Người vận hành', 'nguoi_van_hanh_id', 'van_hanh'),
       peopleField('Tổ trưởng', 'to_truong_id', 'to_truong', ['to_truong', 'quan_ly']),
       comboNhom('Kỹ thuật', 'ky_thuat_id', ['ky_thuat'], false),
     );
 
+    function spNhieu() {
+      const opts = [...new Map((d.multi ? d.muc.flatMap((m) => cat.sanPhamFor(tOf(m.key))) : cat.sanPhamFor(target())).map((s) => [s.id, s])).values()];
+      return multiField({ label: 'Sản phẩm chạy trong ca', value: d.sp_ds, span: true, placeholder: '— Thêm sản phẩm —',
+        options: opts.map((s) => ({ value: s.id, label: s.ten, sub: s.dvt ? `${s.ma} · ${s.dvt}` : s.ma })),
+        onChange: (v) => {
+          d.sp_ds = v; d.san_pham_id = v[0] || '';
+          const mas = new Set(v.map((id) => S.cat.byId.san_pham[id]?.ma));
+          for (const rs of [d.sl_dg, ...(d.muc || []).map((m) => m.sl_dg)]) for (let i = rs.length - 1; i >= 0; i--) if (rs[i].ma_sp && !mas.has(rs[i].ma_sp)) rs.splice(i, 1);
+          changed(); build();
+        } });
+    }
+
     // --- Thời gian & sản lượng
     const g2 = $('[data-g2]', main);
+    const dg = laDG();
     const caReg = S.cat.byId.ca[d.ca_id];
     const caHint = caReg ? `Giờ đăng ký của ${caReg.ten}: ${hm(caReg.gio_bd)}–${hm(caReg.gio_kt)}` : '';
     const capInfo = () => {
       const m = minutesBetween(d.gio_bd, d.gio_kt);
       const lech = caReg && (hm(caReg.gio_bd) !== d.gio_bd || hm(caReg.gio_kt) !== d.gio_kt);
-      $('[data-capinfo]', main).textContent = `Thời gian ca: ${fmtMin(m)}${d.nghi_phut ? ` · nghỉ ${d.nghi_phut} phút` : ''}${lech ? ' · khác giờ đăng ký' : ''}`;
+      const kh = dg ? d.ke_hoach.reduce((a, k) => a + giaoPhut(d.gio_bd, d.gio_kt, k.gio_bd, k.gio_kt), 0) : d.nghi_phut;
+      $('[data-capinfo]', main).textContent = `Thời gian ca: ${fmtMin(m)}${kh ? ` · nghỉ / dừng KH ${kh} phút` : ''}${lech ? ' · khác giờ đăng ký' : ''}`;
     };
     g2.append(
       timeField({ label: 'Giờ bắt đầu', value: d.gio_bd, req: true, msg: caHint,
         onInput: (v) => { d.gio_bd = v; changed(); build(); } }),
       timeField({ label: 'Giờ kết thúc', value: d.gio_kt, req: true, msg: 'Giờ thực tế — sửa được nếu chạy sớm / trễ hơn ca',
         onInput: (v) => { d.gio_kt = v; changed(); build(); } }),
+    );
+    if (dg) g2.append(keHoachBox());   // v1.13: Đóng gói — khoảng nghỉ theo giờ; bỏ SL kế hoạch
+    else g2.append(
       inputField({ label: 'Nghỉ + dừng có kế hoạch', value: d.nghi_phut ?? 0, unit: 'phút', num: 'int',
         msg: 'Cộng chung: nghỉ giữa ca, họp đầu ca, bảo trì định kỳ, không có đơn hàng… — không tính vào tổn thất',
         onInput: (v) => { d.nghi_phut = toInt(v) || 0; capInfo(); changed(); } }),
       inputField({ label: 'SL kế hoạch', value: d.sl_ke_hoach ?? '', unit: dvt(), num: 'int', msg: 'Để tính SL còn lại trong báo cáo giao ca',
         onInput: (v) => { d.sl_ke_hoach = toInt(v); changed(); } }),
     );
-    if (!d.multi) {
+    if (!d.multi && dg) {
+      // v1.13: Đóng gói 1 dây chuyền / máy: tốc độ theo sản phẩm + bảng sản lượng theo dòng + SL lỗi
+      g2.append(tocDoBox(target(), d.toc_do_sp, () => changed()));
+      const tb = el(`<div class="nn-field span-2"><span class="nn-label req">Sản lượng theo sản phẩm / lô / xe</span><div data-sl></div></div>`);
+      g2.append(tb);
+      slTable($('[data-sl]', tb), { rows: d.sl_dg, spIds: () => d.sp_ds, ngay: () => d.ngay, onChange: () => changed() });
+      g2.append(inputField({ label: 'Tổng SL lỗi', value: (+d.sl_loi_kd || 0) + (+d.sl_loi_qt || 0), unit: dvt(), num: 'int',
+        msg: 'Chi tiết từng lỗi (4 giai đoạn) ghi ở Báo cáo giao ca', onInput: (v) => { d.sl_loi_kd = 0; d.sl_loi_qt = toInt(v) || 0; changed(); } }));
+    } else if (!d.multi) {
       g2.append(
         inputField({ label: 'Tổng sản lượng', value: d.tong_sl ?? '', unit: dvt(), num: 'int', req: true,
           msg: isLine() ? 'Đếm ở máy cuối chuyền, gồm cả hàng lỗi' : 'Gồm cả hàng lỗi', onInput: (v) => { d.tong_sl = toInt(v); changed(); } }),
@@ -426,8 +523,27 @@ function form(main, d) {
       const box = el(`<div class="nn-field span-2"><span class="nn-label req">Sản lượng từng dây chuyền / máy</span>${d.muc.length ? '' : '<span class="t-cap">Chọn dây chuyền / máy ở phần trên</span>'}</div>`);
       d.muc.forEach((m) => {
         const fixed = d.san_pham_id && cat.speedFor(tOf(m.key), d.san_pham_id) != null;
-        const row = el(`<div class="stop"><div class="stop-head"><b>${esc(mucLabel(m.key))}</b></div><div class="form-grid"></div></div>`);
-        $('.form-grid', row).append(
+        const row = el(`<div class="stop"><div class="stop-head"><b>${esc(mucLabel(m.key))}</b><span class="chip" data-mtong="${esc(m.key)}"></span></div><div class="form-grid"></div></div>`);
+        const fg = $('.form-grid', row);
+        // v1.13: giờ chạy và người vận hành riêng từng dây chuyền / máy
+        const vh = cat.phanCong(d.ca_id, tOf(m.key), 'van_hanh'); const all = people();
+        const vhOpts = vh.length ? [...vh.map((n) => ({ value: n.id, label: n.ho_ten, sub: `${n.ma_nv} · phân công ca này` })), ...(m.nguoi_van_hanh_id && !vh.some((n) => n.id === m.nguoi_van_hanh_id) ? all.filter((o) => o.value === m.nguoi_van_hanh_id) : [])] : peopleNhom();
+        if (!m.nguoi_van_hanh_id && vh.length === 1) m.nguoi_van_hanh_id = vh[0].id;
+        fg.append(
+          timeField({ label: 'Bắt đầu chạy', value: m.gio_bd || d.gio_bd, req: true, size: 'md', onInput: (v) => { m.gio_bd = v; changed(); } }),
+          timeField({ label: 'Kết thúc chạy', value: m.gio_kt || d.gio_kt, req: true, size: 'md', onInput: (v) => { m.gio_kt = v; changed(); } }),
+          comboField({ label: 'Người vận hành', value: m.nguoi_van_hanh_id || '', size: 'md', options: vhOpts, more: { label: 'Xem tất cả nhân sự (người làm thay)', options: () => all },
+            onChange: (v) => { m.nguoi_van_hanh_id = v; changed(); } }),
+        );
+        if (dg) {
+          fg.append(tocDoBox(tOf(m.key), m.toc_do_sp, () => changed()));
+          const tb = el(`<div class="nn-field span-2"><span class="nn-label req">Sản lượng theo sản phẩm / lô / xe</span><div data-sl></div></div>`);
+          fg.append(tb, inputField({ label: 'SL lỗi', value: m.sl_loi_qt ?? 0, unit: dvt(), num: 'int', onInput: (v) => { m.sl_loi_qt = toInt(v) || 0; changed(); } }));
+          slTable($('[data-sl]', tb), { rows: m.sl_dg, spIds: () => d.sp_ds, ngay: () => d.ngay, onChange: () => changed() });
+          box.append(row);
+          return;
+        }
+        fg.append(
           inputField({ label: 'Tổng SL', value: m.tong_sl ?? '', unit: dvt(), num: 'int', req: true, msg: m.key.startsWith('dc:') ? 'Đếm ở máy cuối chuyền' : '', onInput: (v) => { m.tong_sl = toInt(v); changed(); } }),
           inputField({ label: 'SL lỗi', value: m.sl_loi_qt ?? 0, unit: dvt(), num: 'int', onInput: (v) => { m.sl_loi_qt = toInt(v) || 0; changed(); } }),
           inputField({ label: 'Tốc độ định mức', value: m.toc_do_dm ?? '', unit: `${dvt()}/phút`, num: 'dec', readonly: !!fixed, req: true,
@@ -440,7 +556,7 @@ function form(main, d) {
     capInfo();
 
     // --- v1.4: bỏ phần Dừng có kế hoạch (gộp vào ô Nghỉ). Phiếu cũ có dữ liệu thì vẫn giữ nguyên khi gửi lại.
-    if (d.ke_hoach.length) {
+    if (d.ke_hoach.length && !dg) {
       g2.append(el(`<div class="nn-field span-2"><span class="t-cap">Phiếu cũ có ${d.ke_hoach.length} lần dừng có kế hoạch (${fmtMin(d.ke_hoach.reduce((a, k) => a + minutesBetween(k.gio_bd, k.gio_kt), 0))}) — được giữ nguyên.</span></div>`));
     }
 
@@ -639,13 +755,25 @@ function form(main, d) {
     const raw = m.key.slice(m.key.indexOf(':') + 1);
     const last = m.key.startsWith('dc:') ? cat.lastMay(raw) : null;
     const stops = d.dung_may.filter((x) => x.muc === raw && (!last || x.ca_chuyen !== false || x.may_id === last));
-    return calcPhieu({ ...d, tong_sl: m.tong_sl, sl_loi_kd: 0, sl_loi_qt: m.sl_loi_qt || 0, toc_do_dm: m.toc_do_dm, dung_may: stops }, ngan);
+    const { bd, kt } = mucGio(m);
+    if (laDG()) { const s2 = dgSo(m.sl_dg, spdMuc(m));
+      return calcPhieu({ ...d, gio_bd: bd, gio_kt: kt, nghi_phut: 0, tong_sl: s2.tong, sl_loi_kd: 0, sl_loi_qt: m.sl_loi_qt || 0, toc_do_dm: s2.v, dung_may: stops }, ngan); }
+    return calcPhieu({ ...d, gio_bd: bd, gio_kt: kt, tong_sl: m.tong_sl, sl_loi_kd: 0, sl_loi_qt: m.sl_loi_qt || 0, toc_do_dm: m.toc_do_dm, dung_may: stops }, ngan);
   }
+  const tongMuc = (m) => (laDG() ? tongChai(m.sl_dg) : m.tong_sl);
   async function sendMulti(btn) {
-    const body = { ...d, trang_thai: $('[data-confirm]', main)?.checked ? 'da_xac_nhan' : undefined, nghi_phut: d.nghi_phut || 0 };
-    for (const k of ['loi_sp', 'multi', 'may_id', 'day_chuyen_id', 'bo_may', 'tong_sl', 'toc_do_dm', 'bo_phan_id']) delete body[k];
+    const dg = laDG();
+    const body = { ...d, trang_thai: $('[data-confirm]', main)?.checked ? 'da_xac_nhan' : undefined, nghi_phut: dg ? 0 : d.nghi_phut || 0 };
+    for (const k of ['loi_sp', 'multi', 'may_id', 'day_chuyen_id', 'bo_may', 'tong_sl', 'toc_do_dm', 'bo_phan_id', 'sp_ds', 'sl_dg', 'toc_do_sp']) delete body[k];
     for (const k of ['san_pham_id', 'nguoi_van_hanh_id', 'to_truong_id', 'ky_thuat_id', 'kip_id']) body[k] = body[k] || null;
-    body.muc = d.muc.map((m) => ({ ...(m.key.startsWith('dc:') ? { day_chuyen_id: m.key.slice(3) } : { may_id: m.key.slice(2) }), tong_sl: m.tong_sl, sl_loi_qt: m.sl_loi_qt || 0, toc_do_dm: m.toc_do_dm, bo_may: [] }));
+    if (dg) { body.sl_ke_hoach = null; body.ke_hoach = d.ke_hoach.filter((k) => k.gio_bd && k.gio_kt).map((k) => ({ ly_do_id: k.ly_do_id || null, ly_do_ten: k.ly_do_ten || 'Nghỉ / dừng có kế hoạch', gio_bd: k.gio_bd, gio_kt: k.gio_kt })); }
+    body.muc = d.muc.map((m) => {
+      const base = { ...(m.key.startsWith('dc:') ? { day_chuyen_id: m.key.slice(3) } : { may_id: m.key.slice(2) }), sl_loi_qt: m.sl_loi_qt || 0, bo_may: [],
+        gio_bd: mucGio(m).bd, gio_kt: mucGio(m).kt, nguoi_van_hanh_id: m.nguoi_van_hanh_id || null };
+      if (!dg) return { ...base, tong_sl: m.tong_sl, toc_do_dm: m.toc_do_dm };
+      const s2 = dgSo(m.sl_dg, spdMuc(m));
+      return { ...base, tong_sl: s2.tong, toc_do_dm: s2.v, sl_dg: dongLuu(m.sl_dg, spdMuc(m)) };
+    });
     body.dung_may = d.dung_may.map((x, k) => ({ ...x, stt: k + 1, nguoi_xu_ly_id: x.nguoi_xu_ly_id || null, ma_loi_id: x.ma_loi_id || null, may_id: x.may_id || null, ca_chuyen: x.ca_chuyen !== false }));
     try {
       const r = await submitPhieu(body);
@@ -659,16 +787,16 @@ function form(main, d) {
   /** Bước xem lại trước khi gửi: "← Quay lại sửa" hoặc "Xác nhận gửi" */
   function review() {
     return new Promise((resolve) => {
-      const dongs = d.multi ? d.muc.map((m) => { const c = calcMuc(m); return [mucLabel(m.key), `${fmtNum(m.tong_sl)} ${dvt()} · lỗi ${fmtNum(m.sl_loi_qt || 0)} · OEE ${fmtPct(c.OEE)}`]; })
-        : [[d.day_chuyen_id ? cat.name('day_chuyen', d.day_chuyen_id) : cat.mayLabel(d.may_id), `${fmtNum(d.tong_sl)} ${dvt()} · lỗi ${fmtNum((+d.sl_loi_kd || 0) + (+d.sl_loi_qt || 0))}`]];
+      const dongs = d.multi ? d.muc.map((m) => { const c = calcMuc(m); return [mucLabel(m.key), `${mucGio(m).bd}–${mucGio(m).kt} · ${esc(cat.person(m.nguoi_van_hanh_id) || 'chưa chọn người vận hành')} · ${fmtNum(tongMuc(m))} ${dvt()} · lỗi ${fmtNum(m.sl_loi_qt || 0)} · OEE ${fmtPct(c.OEE)}`]; })
+        : [[d.day_chuyen_id ? cat.name('day_chuyen', d.day_chuyen_id) : cat.mayLabel(d.may_id), `${fmtNum(laDG() ? tongChai(d.sl_dg) : d.tong_sl)} ${dvt()} · lỗi ${fmtNum((+d.sl_loi_kd || 0) + (+d.sl_loi_qt || 0))}`]];
       const body = el(`<div class="nn-stack" style="padding:0;gap:8px">
         <div class="t-cap">Kiểm tra lại trước khi gửi. Bấm “Quay lại sửa” để về phiếu sửa tiếp.</div>
         <div class="nn-table-wrap"><table class="nn-table"><tbody>
           <tr><th>Ngày · Ca</th><td>${fmtDate(d.ngay)} · ${esc(cat.name('ca', d.ca_id))}${d.kip_id ? ` · ${esc(cat.name('kip', d.kip_id))}` : ''} · ${esc(d.gio_bd)}–${esc(d.gio_kt)}</td></tr>
-          <tr><th>Sản phẩm</th><td>${esc(cat.name('san_pham', d.san_pham_id) || '—')}</td></tr>
+          <tr><th>Sản phẩm</th><td>${esc((laDG() ? d.sp_ds : [d.san_pham_id]).map((x) => cat.name('san_pham', x)).filter(Boolean).join(', ') || '—')}</td></tr>
           ${dongs.map(([a, b]) => `<tr><th class="wrap">${esc(a)}</th><td>${b}</td></tr>`).join('')}
           <tr><th>Lần dừng máy</th><td>${d.dung_may.length} lần · ${fmtMin(d.dung_may.reduce((a, x) => a + minutesBetween(x.gio_bd, x.gio_kt), 0))}</td></tr>
-          <tr><th>Người vận hành</th><td>${esc(cat.person(d.nguoi_van_hanh_id) || '—')}</td></tr>
+          ${d.multi ? '' : `<tr><th>Người vận hành</th><td>${esc(cat.person(d.nguoi_van_hanh_id) || '—')}</td></tr>`}
         </tbody></table></div></div>`);
       const back = el(`<button class="nn-btn nn-btn-secondary nn-btn-lg">${icon('chevL', 18)}Quay lại sửa</button>`);
       const ok = el(`<button class="nn-btn nn-btn-primary nn-btn-lg">${icon('pass', 18)}Xác nhận gửi</button>`);
@@ -683,14 +811,15 @@ function form(main, d) {
     const box = $('[data-preview]', main); if (!box) return;
     if (d.multi) {
       box.innerHTML = `<div style="grid-column:1/-1"><div class="nn-table-wrap"><table class="nn-table"><thead><tr><th>Dây chuyền / máy</th><th class="num">A</th><th class="num">P</th><th class="num">Q</th><th class="num">OEE</th></tr></thead><tbody>
-        ${d.muc.map((m) => { const c = calcMuc(m); return `<tr><td class="wrap">${esc(mucLabel(m.key))}</td><td class="num">${fmtPct(c.A)}</td><td class="num">${fmtPct(c.P)}</td><td class="num">${fmtPct(c.Q)}</td><td class="num"><b>${fmtPct(c.OEE)}</b></td></tr>`; }).join('')
+        ${d.muc.map((m) => { const c = calcMuc(m); const ch = $(`[data-mtong="${m.key}"]`, main); if (ch) ch.textContent = `${fmtNum(tongMuc(m) || 0)} ${dvt()}`; return `<tr><td class="wrap">${esc(mucLabel(m.key))}</td><td class="num">${fmtPct(c.A)}</td><td class="num">${fmtPct(c.P)}</td><td class="num">${fmtPct(c.Q)}</td><td class="num"><b>${fmtPct(c.OEE)}</b></td></tr>`; }).join('')
           || '<tr><td colspan="5" class="muted">Chưa chọn dây chuyền / máy</td></tr>'}</tbody></table></div></div>`;
       return;
     }
     const rep = repMayId();
     // Dây chuyền: chỉ tính các lần dừng làm dừng máy cuối chuyền (cả chuyền dừng, hoặc chính máy cuối gây lỗi)
     const stops = isLine() ? d.dung_may.filter((s) => s.ca_chuyen !== false || s.may_id === rep) : d.dung_may;
-    const c = calcPhieu({ ...d, dung_may: stops }, ngan);
+    const s1 = laDG() ? dgSo(d.sl_dg, spdSingle) : null;
+    const c = calcPhieu({ ...d, dung_may: stops, ...(s1 ? { tong_sl: s1.tong, toc_do_dm: s1.v, nghi_phut: 0 } : {}) }, ngan);
     const m = repMay();
     box.innerHTML = [
       kpiCard({ label: 'OEE', value: c.OEE == null ? '—' : fmtNum(c.OEE * 100, 1), unit: '%', status: c.OEE == null ? '' : oeeBadge(c.OEE, m?.nguong_xanh, m?.nguong_vang, true), foot: `<span>Mục tiêu: <b>${fmtNum(m?.oee_muc_tieu ?? 85)}%</b></span>`, small: true }),
@@ -703,36 +832,54 @@ function form(main, d) {
 
   function validate() {
     const errs = [];
+    /** v1.13: kiểm bảng sản lượng Đóng gói của 1 dây chuyền / máy */
+    const kiemDG = (rows, speed, ten, loi) => {
+      const dong = rows.filter((r) => r.ma_sp || r.thung != null || r.le != null);
+      if (!dong.length) errs.push(`${ten}: chưa nhập sản lượng (bấm Thêm dòng)`);
+      dong.forEach((r, i) => { if (!r.ma_sp) errs.push(`${ten} dòng ${i + 1}: chưa chọn sản phẩm`); else if (!r.ma_tp) errs.push(`${ten} dòng ${i + 1}: chưa chọn quy cách đóng gói`);
+        else if (tinhDong(r).tong_chai == null) errs.push(`${ten} dòng ${i + 1}: chưa nhập thùng / lẻ`); });
+      const s2 = dgSo(rows, speed);
+      if (s2.thieu.length) errs.push(`${ten}: chưa có tốc độ định mức của ${s2.thieu.map((x) => cat.name('san_pham', x)).join(', ')}`);
+      if ((+loi || 0) > s2.tong) errs.push(`${ten}: SL lỗi lớn hơn tổng sản lượng`);
+    };
+    if (laDG() && d.ke_hoach.some((k) => !k.gio_bd || !k.gio_kt)) errs.push('Khoảng nghỉ / dừng có kế hoạch: nhập đủ giờ từ – đến');
     if (d.multi) {
       if (!d.muc.length) errs.push('Chưa chọn dây chuyền / máy nào');
       d.muc.forEach((m) => {
-        if (m.tong_sl == null) errs.push(`${mucLabel(m.key)}: chưa nhập tổng SL`);
-        else if ((m.sl_loi_qt || 0) > m.tong_sl) errs.push(`${mucLabel(m.key)}: SL lỗi lớn hơn tổng SL`);
-        if (!(m.toc_do_dm > 0)) errs.push(`${mucLabel(m.key)}: chưa có tốc độ định mức`);
+        const ten = mucLabel(m.key), g = mucGio(m);
+        if (!g.bd || !g.kt) errs.push(`${ten}: thiếu giờ bắt đầu / kết thúc chạy`);
+        if (!m.nguoi_van_hanh_id) errs.push(`${ten}: chưa chọn người vận hành`);
+        if (laDG()) { kiemDG(m.sl_dg, spdMuc(m), ten, m.sl_loi_qt); return; }
+        if (m.tong_sl == null) errs.push(`${ten}: chưa nhập tổng SL`);
+        else if ((m.sl_loi_qt || 0) > m.tong_sl) errs.push(`${ten}: SL lỗi lớn hơn tổng SL`);
+        if (!(m.toc_do_dm > 0)) errs.push(`${ten}: chưa có tốc độ định mức`);
       });
       d.dung_may.forEach((x, i) => { if (!x.muc) errs.push(`Lần dừng ${i + 1}: chưa chọn dây chuyền / máy bị dừng`); });
     } else if (!d.may_id && !d.day_chuyen_id) errs.push('Chưa chọn dây chuyền / máy');
     if (!d.ngay) errs.push('Chưa chọn ngày');
     if (!d.ca_id) errs.push('Chưa chọn ca');
     if (!d.san_pham_id) errs.push('Chưa chọn sản phẩm');
-    if (!d.multi && !(d.toc_do_dm > 0)) errs.push('Chưa có tốc độ định mức');
+    if (!d.multi && laDG()) kiemDG(d.sl_dg, spdSingle, 'Sản lượng', (+d.sl_loi_kd || 0) + (+d.sl_loi_qt || 0));
+    else if (!d.multi && !(d.toc_do_dm > 0)) errs.push('Chưa có tốc độ định mức');
     if (!d.gio_bd || !d.gio_kt) errs.push('Thiếu giờ bắt đầu / kết thúc ca');
-    if (!d.multi && d.tong_sl == null) errs.push('Chưa nhập tổng sản lượng');
-    if (!d.multi && (+d.sl_loi_qt || 0) + (+d.sl_loi_kd || 0) > (d.tong_sl || 0)) errs.push('Tổng SL lỗi lớn hơn tổng sản lượng');
+    if (!d.multi && !laDG() && d.tong_sl == null) errs.push('Chưa nhập tổng sản lượng');
+    if (!d.multi && !laDG() && (+d.sl_loi_qt || 0) + (+d.sl_loi_kd || 0) > (d.tong_sl || 0)) errs.push('Tổng SL lỗi lớn hơn tổng sản lượng');
     d.dung_may.forEach((s, i) => {
       if ((d.multi ? d.muc.find((m) => m.key === `dc:${s.muc}`) : isLine()) && !s.may_id) errs.push(`Lần dừng ${i + 1}: chưa chọn máy gây lỗi`);
       if (!s.ma_loi_id && !String(s.ten_loi || '').trim()) errs.push(`Lần dừng ${i + 1}: chưa chọn tên lỗi`);
       else if (isLoiKhac(s.ten_loi) && !String(s.ghi_chu || '').trim()) errs.push(`Lần dừng ${i + 1}: chọn "${s.ten_loi}" thì phải ghi rõ lỗi cụ thể vào ô Ghi chú`);
       if (isLine() && s.may_id && d.bo_may.includes(s.may_id)) errs.push(`Lần dừng ${i + 1}: máy gây lỗi đã bị bỏ tích (không chạy)`);
+      const mk = d.multi ? d.muc.find((m) => m.key.endsWith(`:${s.muc}`)) : null;
+      const gbd = mk ? mucGio(mk).bd : d.gio_bd, gkt = mk ? mucGio(mk).kt : d.gio_kt;
       if (!s.gio_bd || !s.gio_kt) errs.push(`Lần dừng ${i + 1}: thiếu giờ bắt đầu / kết thúc`);
-      else if (d.gio_bd && d.gio_kt) {
-        // Cả giờ bắt đầu lẫn giờ kết thúc dừng đều phải nằm trong giờ làm việc của phiếu
-        if (!timeInRange(s.gio_bd, d.gio_bd, d.gio_kt)) errs.push(`Lần dừng ${i + 1}: giờ bắt đầu ${s.gio_bd} nằm ngoài ca ${d.gio_bd}–${d.gio_kt}`);
-        else if (!timeInRange(s.gio_kt, d.gio_bd, d.gio_kt)) errs.push(`Lần dừng ${i + 1}: giờ kết thúc ${s.gio_kt} nằm ngoài ca ${d.gio_bd}–${d.gio_kt}`);
-        else if (minutesBetween(d.gio_bd, s.gio_kt) < minutesBetween(d.gio_bd, s.gio_bd)) errs.push(`Lần dừng ${i + 1}: giờ kết thúc dừng ${s.gio_kt} sớm hơn giờ bắt đầu dừng ${s.gio_bd}`);
+      else if (gbd && gkt) {
+        // Cả giờ bắt đầu lẫn giờ kết thúc dừng đều phải nằm trong giờ chạy (v1.13: của dây chuyền / máy đó khi ghi chung)
+        if (!timeInRange(s.gio_bd, gbd, gkt)) errs.push(`Lần dừng ${i + 1}: giờ bắt đầu ${s.gio_bd} nằm ngoài giờ chạy ${gbd}–${gkt}`);
+        else if (!timeInRange(s.gio_kt, gbd, gkt)) errs.push(`Lần dừng ${i + 1}: giờ kết thúc ${s.gio_kt} nằm ngoài giờ chạy ${gbd}–${gkt}`);
+        else if (minutesBetween(gbd, s.gio_kt) < minutesBetween(gbd, s.gio_bd)) errs.push(`Lần dừng ${i + 1}: giờ kết thúc dừng ${s.gio_kt} sớm hơn giờ bắt đầu dừng ${s.gio_bd}`);
       }
     });
-    const c = calcPhieu(d.multi ? { ...d, tong_sl: 0, toc_do_dm: 1 } : d, ngan);
+    const c = calcPhieu(d.multi ? { ...d, tong_sl: 0, toc_do_dm: 1 } : laDG() ? { ...d, nghi_phut: 0, tong_sl: 0, toc_do_dm: 1 } : d, ngan);
     if (c.caPhut && c.stopLoss + c.keHoach + c.nghi > c.caPhut) errs.push(`Tổng thời gian dừng (${fmtMin(c.stopLoss + c.keHoach + c.nghi)}) vượt thời gian ca (${fmtMin(c.caPhut)})`);
     return errs;
   }
@@ -753,6 +900,12 @@ function form(main, d) {
     body.dung_may = d.dung_may.map((s, k) => ({ ...s, stt: k + 1, nguoi_xu_ly_id: s.nguoi_xu_ly_id || null, ma_loi_id: s.ma_loi_id || null, may_id: line ? s.may_id : undefined, ca_chuyen: line ? s.ca_chuyen !== false : undefined }));
     body.ke_hoach = d.ke_hoach.map((k) => ({ ...k, ly_do_id: k.ly_do_id || null }));
     delete body.loi_sp; delete body.muc; delete body.multi; delete body.bo_phan_id;   // v1.8: lỗi chi tiết ghi ở Báo cáo giao ca
+    delete body.sp_ds; delete body.toc_do_sp;
+    if (laDG()) {   // v1.13: tổng SL = tổng các dòng, tốc độ hiệu dụng theo sản phẩm, khoảng nghỉ theo giờ
+      const s1 = dgSo(d.sl_dg, spdSingle);
+      Object.assign(body, { tong_sl: s1.tong, toc_do_dm: s1.v, sl_dg: dongLuu(d.sl_dg, spdSingle), nghi_phut: 0, sl_ke_hoach: null,
+        ke_hoach: d.ke_hoach.filter((k) => k.gio_bd && k.gio_kt).map((k) => ({ ly_do_id: k.ly_do_id || null, ly_do_ten: k.ly_do_ten || 'Nghỉ / dừng có kế hoạch', gio_bd: k.gio_bd, gio_kt: k.gio_kt })) });
+    } else delete body.sl_dg;
     body.sl_loi_kd = 0; body.sl_loi_qt = (+d.sl_loi_kd || 0) + (+d.sl_loi_qt || 0);
     for (const k of ['san_pham_id', 'nguoi_van_hanh_id', 'to_truong_id', 'ky_thuat_id']) body[k] = body[k] || null;
     if (line) { body.may_id = null; body.bo_may = d.bo_may.filter((id) => members().some((x) => x.may_id === id)); } else delete body.bo_may;
@@ -909,6 +1062,12 @@ async function detail(main, id) {
     ${(p.dung_ke_hoach || []).length ? `<section class="card section"><div class="card-head"><div class="t-h2">Dừng có kế hoạch</div><span class="chip">${fmtMin(c.keHoach)}</span></div>
       <div class="nn-table-wrap"><table class="nn-table"><thead><tr><th>Lý do</th><th>Từ</th><th>Đến</th><th class="num">Phút</th></tr></thead><tbody>
       ${p.dung_ke_hoach.map((k) => `<tr><td>${esc(k.ly_do_ten || '')}</td><td>${hm(k.gio_bd)}</td><td>${hm(k.gio_kt)}</td><td class="num">${k.phut}</td></tr>`).join('')}</tbody></table></div></section>` : ''}
+    ${items.some((it) => (it.p.sl_dg || []).length) ? `<section class="card section"><div class="card-head"><div class="t-h2">Sản lượng theo sản phẩm / lô / xe</div></div>
+      <div class="nn-table-wrap"><table class="nn-table"><thead><tr><th>Máy</th><th>Ngày SX</th><th>Sản phẩm</th><th>Mã lô</th><th>Xe</th><th>Kíp SX</th><th>Quy cách</th><th class="num">Thùng</th><th class="num">Lẻ</th><th class="num">SKU</th><th class="num">Tổng SL</th></tr></thead><tbody>
+      ${items.filter((it) => !isGroup || it.p.may_id === lastId).flatMap((it) => (it.p.sl_dg || []).map((r) => `<tr><td>${esc(cat.name('may', it.p.may_id, 'ma'))}</td><td>${r.ngay_sx ? fmtDate(r.ngay_sx) : '—'}</td>
+        <td>${esc(cat.name('san_pham', r.san_pham_id) || r.ma_sp || '')}</td><td>${esc(r.ma_lo || '')}</td><td>${esc(r.stt_xe || '')}</td><td>${esc(r.kip_sx || '')}</td>
+        <td class="wrap">${esc((S.cat.quy_cach_tp || []).find((q) => q.ma_tp === r.ma_tp)?.ten_tp || r.ma_tp || '')}</td><td class="num">${fmtNum(r.thung ?? 0)}</td><td class="num">${fmtNum(r.le ?? 0)}</td>
+        <td class="num">${fmtNum(r.tong_sku)}</td><td class="num"><b>${fmtNum(r.tong_chai)}</b></td></tr>`)).join('')}</tbody></table></div></section>` : ''}
     <section class="card section"><div class="card-head"><div class="t-h2">Các lần dừng máy (${stops.length})</div><span class="chip">${fmtMin(isGroup ? stops.reduce((a, x) => a + (x.s.phut || 0), 0) : c.stopLoss)}</span></div>
       ${stops.length ? `<div class="list-cards">${stops.map(({ s, parent }, i) => `<div class="lc" style="cursor:default">
         <div class="lc-row"><b>${i + 1}. ${esc(s.ten_loi || '')}</b>${ttBadge(s.tinh_trang)}</div>
