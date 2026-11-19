@@ -1,7 +1,7 @@
 // Báo cáo ngày / tuần / tháng: xuất Excel và in PDF
 import { S, cat, errText } from '../api.js';
-import { loadCalc } from '../data.js';
-import { aggregate, teep, pareto } from '../kpi.js';
+import { loadCalc, donViOEE } from '../data.js';
+import { aggregate, teep, loading, pareto } from '../kpi.js';
 import { esc, icon, today, addDays, monthStart, daysBetween, fmtDate, fmtNum, fmtPct, fmtMin, hm, NHOM_TT, TINH_TRANG, TRANG_THAI_PHIEU, fmtDateTime, oeeBadge, xlsxSheet } from '../lib.js';
 import { $, rangeField, selectField, segmented, toast } from '../ui.js';
 import { offlineNote } from './today.js';
@@ -38,7 +38,9 @@ export async function render(main) {
     const ids = new Set(machines.map((m) => m.id));
     const rows = data.filter((r) => ids.has(r.p.may_id));
     const agg = aggregate(rows.map((r) => r.c));
-    const T = teep(agg, daysBetween(st.from, st.to), new Set(rows.map((x) => x.p.may_id)).size);
+    // v1.15: TEEP / Loading: mỗi dây chuyền tính 1 lần, bỏ máy phụ trợ
+    const u = donViOEE(rows), aggU = aggregate(u.rows.map((r) => r.c)), nd = daysBetween(st.from, st.to);
+    const T = teep(aggU, nd, u.units), LD = loading(aggU, nd, u.units), kt = agg.kt;
     const perMay = machines.map((m) => ({ m, a: aggregate(rows.filter((r) => r.p.may_id === m.id).map((r) => r.c)) })).filter((x) => x.a.n);
     const par = pareto(rows.flatMap((r) => r.p.dung_may || []));
     const lossTotal = agg.L.slice(1).reduce((s, v) => s + v, 0);
@@ -50,8 +52,9 @@ export async function render(main) {
       <p><b>Kỳ báo cáo:</b> ${fmtDate(st.from)} – ${fmtDate(st.to)} · ${rows.length} phiếu · ${perMay.length} máy có số liệu</p>
       ${rows.length ? `
       <div class="grid-kpi" style="grid-template-columns:repeat(auto-fill,minmax(130px,1fr))">
-        ${[['OEE', fmtPct(agg.OEE)], ['Availability', fmtPct(agg.A)], ['Performance', fmtPct(agg.P)], ['Quality', fmtPct(agg.Q)], ['TEEP', fmtPct(T)],
-          ['MTBF', agg.MTBF == null ? '—' : `${fmtNum(agg.MTBF / 60, 1)} giờ`], ['MTTR', agg.MTTR == null ? '—' : `${fmtNum(agg.MTTR)} phút`], ['Tổng SL', fmtNum(agg.tong)]]
+        ${[['OEE', fmtPct(agg.OEE)], ['Availability', fmtPct(agg.A)], ['Performance', fmtPct(agg.P)], ['Quality', fmtPct(agg.Q)], ['TEEP', fmtPct(T)], ['Loading', fmtPct(LD)],
+          ['MTBF', agg.MTBF == null ? '—' : `${fmtNum(agg.MTBF / 60, 1)} giờ`], ['MTTR', agg.MTTR == null ? '—' : `${fmtNum(agg.MTTR)} phút`], ['Tổng SL', fmtNum(agg.tong)],
+          ...(kt.n && !agg.phuTro ? [['Phụ trợ — sẵn sàng', fmtPct(kt.A)], ['Phụ trợ — MTBF', kt.MTBF == null ? '—' : `${fmtNum(kt.MTBF / 60, 1)} giờ`], ['Phụ trợ — MTTR', kt.MTTR == null ? '—' : `${fmtNum(kt.MTTR)} phút`]] : [])]
           .map(([l, v]) => `<div class="nn-kpi" style="padding:8px 12px"><span class="nn-label">${l}</span><div class="nn-kpi-value sm">${v}</div></div>`).join('')}
       </div>
       <div class="t-h3" style="margin:16px 0 8px">Chỉ số theo máy</div>

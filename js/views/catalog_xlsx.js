@@ -2,7 +2,7 @@
 // Nhập = THÊM MỚI + CẬP NHẬT theo mã/tên, KHÔNG XÓA (muốn bỏ thì đặt "Đang dùng" = Không).
 // Trước khi nhập: xem trước số dòng thêm / sửa / lỗi, rồi xác nhận bằng PIN của admin.
 import { S, sb, cat, can, loadCatalog, verifyPin, errText } from '../api.js';
-import { esc, icon, hm, pad, today, NHOM_TT, LOAI_LOI, MUC_DO, VAI_TRO, noAccent, toNum, xlsxSheet } from '../lib.js';
+import { esc, icon, hm, pad, today, NHOM_TT, LOAI_LOI, MUC_DO, VAI_TRO, noAccent, toNum, xlsxSheet, CACH_TINH } from '../lib.js';
 import { el, $, toast, openSheet, inputField } from '../ui.js';
 
 // ---------- Xác nhận bằng PIN admin ----------
@@ -34,6 +34,10 @@ const nmName = (id) => S.cat.byId.nha_may[id]?.ten || '';
 const yn = (b) => (b ? 'Có' : 'Không');
 const k = (s) => noAccent(String(s ?? '').trim()).replace(/\s+/g, ' ');
 const str = (v) => String(v ?? '').trim();
+// v1.15: "Cách tính" của máy: Liên tục / Theo mẻ / Phụ trợ (để trống = giữ như cũ, máy mới = Liên tục)
+const ctOf = (v, cu) => { const x = k(v); if (!x) return cu || 'lien_tuc';
+  if (x.includes('phu tro')) return 'phu_tro'; if (x.includes('lien tuc')) return 'lien_tuc'; if (/\bme\b/.test(x)) return 'theo_me';
+  throw new Error(`Cách tính "${v}" không hợp lệ — ghi Liên tục, Theo mẻ hoặc Phụ trợ`); };
 const ALL_NM = '(admin tổng)';
 const ALL_BP = '(tất cả)';
 const MAY_DON = 'Máy đơn';
@@ -86,7 +90,7 @@ export function exportCatalog() {
   add('Bộ phận', S.cat.bo_phan.filter(inScope).map((b) => ({ 'Nhà máy': nmName(b.nha_may_id), 'Bộ phận': b.ten, 'Đang dùng': yn(b.hoat_dong), 'Thứ tự': b.thu_tu })), SHEETS.bo_phan.cols);
   add('Khu vực', S.cat.khu_vuc.filter(inScope).map((x) => ({ 'Nhà máy': nmName(x.nha_may_id), 'Khu vực': x.ten, 'Đang dùng': yn(x.hoat_dong), 'Thứ tự': x.thu_tu })), SHEETS.khu_vuc.cols);
   add('Máy', S.cat.may.filter(inScope).map((m) => ({ 'Nhà máy': nmName(m.nha_may_id), 'Mã máy': m.ma, 'Tên máy': m.ten, 'Khu vực': cat.name('khu_vuc', m.khu_vuc_id), 'Bộ phận': cat.name('bo_phan', m.bo_phan_id),
-    'Dây chuyền (chỉ xem)': cat.lineNames(m.id) || MAY_DON, 'OEE mục tiêu (%)': m.oee_muc_tieu, 'Ngưỡng xanh (%)': m.nguong_xanh, 'Ngưỡng vàng (%)': m.nguong_vang, 'Đang dùng': yn(m.hoat_dong), 'Thứ tự': m.thu_tu })), SHEETS.may.cols);
+    'Dây chuyền (chỉ xem)': cat.lineNames(m.id) || MAY_DON, 'OEE mục tiêu (%)': m.oee_muc_tieu, 'Ngưỡng xanh (%)': m.nguong_xanh, 'Ngưỡng vàng (%)': m.nguong_vang, 'Đang dùng': yn(m.hoat_dong), 'Thứ tự': m.thu_tu, 'Cách tính': CACH_TINH[m.cach_tinh || 'lien_tuc'] })), SHEETS.may.cols);
   add('Lỗi sản phẩm', (S.cat.loi_san_pham || []).filter((l) => inScope(S.cat.byId.san_pham[l.san_pham_id] || {})).map((l) => { const sp = S.cat.byId.san_pham[l.san_pham_id];
     return { 'Nhà máy': nmName(sp.nha_may_id), 'Mã sản phẩm': sp.ma, 'Sản phẩm (chỉ xem)': sp.ten, 'Mã lỗi': l.ma || '', 'Tên lỗi': l.ten, 'Đang dùng': yn(l.hoat_dong), 'Thứ tự': l.thu_tu }; }), SHEETS.loi_san_pham.cols);
   add('Mã lỗi', S.cat.ma_loi.filter(mayIn).map((l) => ({ 'Nhà máy': nmName(mayOf(l.may_id)?.nha_may_id), 'Mã máy': mayOf(l.may_id)?.ma, 'Tên máy (chỉ xem)': mayOf(l.may_id)?.ten, 'Mã lỗi': l.ma, 'Tên lỗi': l.ten,
@@ -104,7 +108,8 @@ export function exportCatalog() {
     return [...m.values()];
   };
   add('SP & tốc độ theo máy', speedRows(S.cat.may_san_pham, S.cat.toc_do, 'may_id').filter(mayIn).map((r) => ({
-    'Nhà máy': nmName(mayOf(r.may_id)?.nha_may_id), 'Mã máy': mayOf(r.may_id)?.ma, 'Tên máy (chỉ xem)': mayOf(r.may_id)?.ten, 'Mã sản phẩm': sp(r.san_pham_id)?.ma, 'Sản phẩm (chỉ xem)': sp(r.san_pham_id)?.ten, 'Tốc độ (sp/phút)': r.sp_phut })), SHEETS.toc_do.cols);
+    'Nhà máy': nmName(mayOf(r.may_id)?.nha_may_id), 'Mã máy': mayOf(r.may_id)?.ma, 'Tên máy (chỉ xem)': mayOf(r.may_id)?.ten, 'Mã sản phẩm': sp(r.san_pham_id)?.ma, 'Sản phẩm (chỉ xem)': sp(r.san_pham_id)?.ten,
+    ...(cat.cachTinh(r.may_id) === 'theo_me' ? { 'Phút / mẻ (máy theo mẻ)': r.sp_phut > 0 ? +(1 / r.sp_phut).toFixed(2) : '' } : { 'Tốc độ (sp/phút)': r.sp_phut }) })), SHEETS.toc_do.cols);
   add('SP & tốc độ theo chuyền', speedRows(S.cat.day_chuyen_san_pham, S.cat.toc_do_day_chuyen, 'day_chuyen_id').filter(lineIn).map((r) => { const l = S.cat.byId.day_chuyen[r.day_chuyen_id]; return {
     'Nhà máy': nmName(l.nha_may_id), 'Dây chuyền': l.ten, 'Mã sản phẩm': sp(r.san_pham_id)?.ma, 'Sản phẩm (chỉ xem)': sp(r.san_pham_id)?.ten, 'Tốc độ (sp/phút)': r.sp_phut }; }), SHEETS.toc_do_day_chuyen.cols);
   add('Ca làm việc', S.cat.ca.filter(inScope).map((c) => ({ 'Nhà máy': nmName(c.nha_may_id), 'Bộ phận': cat.name('bo_phan', c.bo_phan_id) || ALL_BP, 'Ca': c.ten, 'Giờ bắt đầu': hm(c.gio_bd), 'Giờ kết thúc': hm(c.gio_kt), 'Nghỉ (phút)': c.nghi_phut, 'Đang dùng': yn(c.hoat_dong), 'Thứ tự': c.thu_tu })), SHEETS.ca.cols);
@@ -150,13 +155,14 @@ const SHEETS = {
     build: (r, X) => { const nm = X.nm(r);
       return { rec: { nha_may_id: nm, nguong_dung_ngan: numOf(r['Ngưỡng dừng ngắn (phút)'], 'Ngưỡng dừng ngắn', { def: 5 }), gio_qua_han: numOf(r['Cảnh báo quá hạn (giờ)'], 'Cảnh báo quá hạn', { def: 4 }) },
         old: S.cat.cai_dat.find((c) => c.nha_may_id === nm), pkey: nm }; } },
-  may: { sheet: 'Máy', table: 'may', phase: 3, cols: ['Nhà máy', 'Mã máy', 'Tên máy', 'Khu vực', 'Bộ phận', 'Dây chuyền (chỉ xem)', 'OEE mục tiêu (%)', 'Ngưỡng xanh (%)', 'Ngưỡng vàng (%)', 'Đang dùng', 'Thứ tự'],
+  may: { sheet: 'Máy', table: 'may', phase: 3, cols: ['Nhà máy', 'Mã máy', 'Tên máy', 'Khu vực', 'Bộ phận', 'Dây chuyền (chỉ xem)', 'OEE mục tiêu (%)', 'Ngưỡng xanh (%)', 'Ngưỡng vàng (%)', 'Đang dùng', 'Thứ tự', 'Cách tính'],
     build: (r, X) => { const nm = X.nm(r); const ma = need(r['Mã máy'], 'mã máy');
       const bp = X.byName('bo_phan', nm, need(r['Bộ phận'], 'bộ phận'), 'bộ phận');
       const kv = str(r['Khu vực']) ? X.byName('khu_vuc', nm, r['Khu vực'], 'khu vực') : null;
       return { rec: { nha_may_id: nm, ma, ten: need(r['Tên máy'], 'tên máy'), bo_phan_id: bp.id, khu_vuc_id: kv?.id || null,
         oee_muc_tieu: numOf(r['OEE mục tiêu (%)'], 'OEE mục tiêu', { def: 85 }), nguong_xanh: numOf(r['Ngưỡng xanh (%)'], 'Ngưỡng xanh', { def: 85 }), nguong_vang: numOf(r['Ngưỡng vàng (%)'], 'Ngưỡng vàng', { def: 60 }),
-        hoat_dong: boolOf(r['Đang dùng']), thu_tu: numOf(r['Thứ tự'], 'Thứ tự', { def: 0 }) }, old: X.findMay(nm, ma, true), pkey: `${nm}|${k(ma)}` }; } },
+        hoat_dong: boolOf(r['Đang dùng']), thu_tu: numOf(r['Thứ tự'], 'Thứ tự', { def: 0 }), cach_tinh: ctOf(r['Cách tính'], X.findMay(nm, ma, true)?.cach_tinh) },
+        old: X.findMay(nm, ma, true), pkey: `${nm}|${k(ma)}` }; } },
   ca: { sheet: 'Ca làm việc', table: 'ca', phase: 3, cols: ['Nhà máy', 'Bộ phận', 'Ca', 'Giờ bắt đầu', 'Giờ kết thúc', 'Nghỉ (phút)', 'Đang dùng', 'Thứ tự'],
     build: (r, X) => { const nm = X.nm(r); const ten = need(r['Ca'], 'tên ca');
       const bp = str(r['Bộ phận']) && k(r['Bộ phận']) !== k(ALL_BP) ? X.byName('bo_phan', nm, r['Bộ phận'], 'bộ phận') : null;
@@ -206,10 +212,11 @@ const SHEETS = {
     build: (r, X) => { const nm = X.nm(r); const l = X.findLine(nm, need(r['Dây chuyền'], 'dây chuyền')); const m = X.findMay(nm, need(r['Mã máy'], 'mã máy'));
       return { rec: { day_chuyen_id: l.id, may_id: m.id, thu_tu: numOf(r['Thứ tự'], 'Thứ tự', { def: 0 }), la_may_cuoi: boolOf(r['Máy cuối chuyền'], false) },
         old: l.id === PENDING || m.id === PENDING ? null : S.cat.day_chuyen_may.find((x) => x.day_chuyen_id === l.id && x.may_id === m.id), pkey: `${k(r['Dây chuyền'])}|${k(r['Mã máy'])}` }; } },
-  toc_do: { sheet: 'SP & tốc độ theo máy', table: 'toc_do', phase: 4, cols: ['Nhà máy', 'Mã máy', 'Tên máy (chỉ xem)', 'Mã sản phẩm', 'Sản phẩm (chỉ xem)', 'Tốc độ (sp/phút)'],
+  toc_do: { sheet: 'SP & tốc độ theo máy', table: 'toc_do', phase: 4, cols: ['Nhà máy', 'Mã máy', 'Tên máy (chỉ xem)', 'Mã sản phẩm', 'Sản phẩm (chỉ xem)', 'Tốc độ (sp/phút)', 'Phút / mẻ (máy theo mẻ)'],
     speed: { col: 'may_id', assign: 'may_san_pham' },
     build: (r, X) => { const nm = X.nm(r); const m = X.findMay(nm, need(r['Mã máy'], 'mã máy')); const p = X.findSp(nm, need(r['Mã sản phẩm'], 'mã sản phẩm'));
-      const v = numOf(r['Tốc độ (sp/phút)'], 'Tốc độ'); if (v != null && v <= 0) throw new Error('Tốc độ phải lớn hơn 0');
+      const pm = numOf(r['Phút / mẻ (máy theo mẻ)'], 'Phút / mẻ'); if (pm != null && pm <= 0) throw new Error('Phút / mẻ phải lớn hơn 0');
+      const v = pm != null ? 1 / pm : numOf(r['Tốc độ (sp/phút)'], 'Tốc độ'); if (v != null && v <= 0) throw new Error('Tốc độ phải lớn hơn 0');
       return speedRec('may_id', 'may_san_pham', 'toc_do', m.id, p.id, v); } },
   toc_do_day_chuyen: { sheet: 'SP & tốc độ theo chuyền', table: 'toc_do_day_chuyen', phase: 4, cols: ['Nhà máy', 'Dây chuyền', 'Mã sản phẩm', 'Sản phẩm (chỉ xem)', 'Tốc độ (sp/phút)'],
     speed: { col: 'day_chuyen_id', assign: 'day_chuyen_san_pham' },

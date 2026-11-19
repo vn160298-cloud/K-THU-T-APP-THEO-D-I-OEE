@@ -1,7 +1,7 @@
 // Chỉ số: OEE, A, P, Q, TEEP, OPE, MTBF, MTTR, 6 tổn thất lớn, Pareto — có bộ lọc và xuất báo cáo theo bộ lọc
 import { S, cat, can, errText } from '../api.js';
-import { loadCalc, groupEntries } from '../data.js';
-import { aggregate, teep, pareto } from '../kpi.js';
+import { loadCalc, groupEntries, donViOEE } from '../data.js';
+import { aggregate, teep, loading, pareto } from '../kpi.js';
 import { esc, icon, today, addDays, daysBetween, fmtDate, fmtNum, fmtPct, fmtMin, fmtDateTime, hm, NHOM_TT, TINH_TRANG, TRANG_THAI_PHIEU, oeeBadge, xlsxSheet } from '../lib.js';
 import { $, rangeField, selectField, comboField, kpiCard, cssVar, toast } from '../ui.js';
 import { offlineNote } from './today.js';
@@ -80,11 +80,14 @@ export async function render(main, { q }) {
     const rows = data.filter((r) => ids.has(r.p.may_id) && bySp(r));
     const agg = aggregate(rows.map((r) => r.c));
     const days = daysBetween(st.from, st.to);
-    // v1.12: máy kỹ thuật (phiếu tự tạo từ giao ca KT) không tính số phiếu / số máy / TEEP — chỉ góp vào MTBF, MTTR, Pareto
+    // v1.12 / v1.15: máy phụ trợ (giao ca KT hoặc khai "Phụ trợ") không tính số phiếu / số máy / TEEP / OPE — tính riêng độ sẵn sàng, MTBF, MTTR
     const rowsOEE = rows.filter((r) => !r.c.kt);
-    const withData = new Set(rowsOEE.map((r) => r.p.may_id)).size; // TEEP tính trên các máy có số liệu trong kỳ
-    const T = teep(agg, days, withData);
-    const plant = aggregate(data.filter(bySp).map((r) => r.c)); // OPE toàn nhà máy (hoặc toàn hệ thống)
+    const withData = new Set(rowsOEE.map((r) => r.p.may_id)).size;
+    // v1.15: TEEP / Loading / OPE: mỗi dây chuyền tính 1 lần (máy cuối chuyền), máy đơn / theo mẻ 1 lần, bỏ phụ trợ
+    const u = donViOEE(rowsOEE), aggU = aggregate(u.rows.map((r) => r.c));
+    const T = teep(aggU, days, u.units), LD = loading(aggU, days, u.units);
+    const plant = aggregate(donViOEE(data.filter(bySp)).rows.map((r) => r.c)); // OPE toàn nhà máy (hoặc toàn hệ thống)
+    const ktRows = rows.filter((r) => r.c.kt), aggKT = aggregate(ktRows.map((r) => r.c)).kt;
     const par = pareto(rows.flatMap((r) => r.p.dung_may || []));
     const nEntries = groupEntries(rowsOEE).length;
     $('[data-ph]', main).innerHTML = `<div class="pr-head"><img src="icons/logo.png" alt="NutriNest"><div class="pr-title">BÁO CÁO CHỈ SỐ OEE</div>
@@ -96,8 +99,9 @@ export async function render(main, { q }) {
 
     const L = agg.L;
     const lossTotal = L.slice(1).reduce((s, v) => s + v, 0);
-    const perMay = machines.map((m) => ({ m, a: aggregate(rows.filter((r) => r.p.may_id === m.id).map((r) => r.c)) })).filter((x) => x.a.n)
-      .sort((x, y) => (y.a.OEE ?? -1) - (x.a.OEE ?? -1));
+    const perMayAll = machines.map((m) => ({ m, a: aggregate(rows.filter((r) => r.p.may_id === m.id).map((r) => r.c)) })).filter((x) => x.a.n);
+    const perMay = perMayAll.filter((x) => x.a.nSX).sort((x, y) => (y.a.OEE ?? -1) - (x.a.OEE ?? -1));
+    const perKT = perMayAll.filter((x) => x.a.kt.n).sort((x, y) => (x.a.kt.A ?? 2) - (y.a.kt.A ?? 2));
     // OEE dây chuyền = OEE của máy cuối chuyền (cùng tốc độ dây chuyền, đếm sản lượng đạt ở máy cuối)
     const lineRows = S.cat.day_chuyen.filter((l) => l.hoat_dong && inNm(l)).map((l) => {
       const last = cat.lastMay(l.id);
@@ -115,7 +119,7 @@ export async function render(main, { q }) {
     }).filter((x) => x.parts.some((p) => p.r));
     const dates = []; for (let d = st.from; d <= st.to; d = addDays(d, 1)) dates.push(d);
     const perDay = dates.map((d) => aggregate(rows.filter((r) => r.p.ngay === d).map((r) => r.c)).OEE);
-    view = { rows, agg, T, plant, par, perMay, lineRows, tongRows, dates, perDay, machines, days, withData, nEntries };
+    view = { rows, agg, T, LD, units: u.units, plant, par, perMay, perKT, aggKT, lineRows, tongRows, dates, perDay, machines, days, withData, nEntries };
 
     body.innerHTML = `
       ${agg.invalid ? `<div class="nn-alert nn-alert-warning section"><span class="nn-alert-icon nn-tone-warning">${icon('warn', 20)}</span><div class="nn-alert-body"><div class="nn-alert-text">${agg.invalid} phiếu có thời gian chạy kế hoạch bằng 0 (dừng kế hoạch nhập sai giờ) — không tính vào OEE. Mở phiếu để sửa.</div></div></div>` : ''}
@@ -125,9 +129,9 @@ export async function render(main, { q }) {
         ${kpiCard({ label: 'Availability', value: fmtNum((agg.A ?? 0) * 100, 1), unit: '%', foot: `<span>Chạy <b>${fmtNum(agg.run / 60, 1)}</b> giờ</span>` })}
         ${kpiCard({ label: 'Performance', value: fmtNum((agg.P ?? 0) * 100, 1), unit: '%', foot: `<span>Tổng SL <b>${fmtNum(agg.tong)}</b></span>` })}
         ${kpiCard({ label: 'Quality', value: fmtNum((agg.Q ?? 0) * 100, 1), unit: '%', foot: `<span>Lỗi <b>${fmtNum(agg.kd + agg.qt)}</b> sp</span>` })}
-        ${kpiCard({ label: 'TEEP', value: T == null ? '—' : fmtNum(T * 100, 1), unit: '%', foot: `<span>24h × ${days} ngày × ${withData} máy</span>` })}
-        ${kpiCard({ label: multi() ? 'OPE hệ thống' : 'OPE nhà máy', value: plant.OEE == null ? '—' : fmtNum(plant.OEE * 100, 1), unit: '%', foot: `<span>Toàn bộ máy ${multi() ? 'các nhà máy' : 'trong nhà máy'}</span>` })}
-        ${kpiCard({ label: 'MTBF', value: agg.MTBF == null ? '—' : fmtNum(agg.MTBF / 60, 1), unit: 'giờ', foot: `<span><b>${agg.bdCount}</b> lần hỏng hóc</span>` })}
+        ${kpiCard({ label: 'TEEP', value: T == null ? '—' : fmtNum(T * 100, 1), unit: '%', foot: `<span>Loading <b>${LD == null ? '—' : fmtPct(LD)}</b> · 24h × ${days} ngày × ${u.units} chuyền / máy</span>` })}
+        ${kpiCard({ label: multi() ? 'OPE hệ thống' : 'OPE nhà máy', value: plant.OEE == null ? '—' : fmtNum(plant.OEE * 100, 1), unit: '%', foot: `<span>Mỗi dây chuyền tính 1 lần · không gồm phụ trợ</span>` })}
+        ${kpiCard({ label: agg.phuTro ? 'MTBF phụ trợ' : 'MTBF', value: agg.MTBF == null ? '—' : fmtNum(agg.MTBF / 60, 1), unit: 'giờ', foot: `<span><b>${agg.bdCount}</b> lần hỏng hóc${agg.phuTro ? '' : ' · máy sản xuất'}</span>` })}
         ${kpiCard({ label: 'MTTR', value: agg.MTTR == null ? '—' : fmtNum(agg.MTTR, 0), unit: 'phút', foot: `<span>Tổng <b>${fmtMin(agg.bdMin)}</b></span>` })}
       </section>
       <section class="card section"><div class="card-head"><div><div class="t-h2">OEE theo ngày</div><div class="t-cap">Nét liền: OEE thực tế · nét đứt: mục tiêu 85%</div></div></div><div class="chart-box"><canvas data-c1 aria-label="Biểu đồ OEE theo ngày"></canvas></div></section>
@@ -154,7 +158,19 @@ export async function render(main, { q }) {
           <td class="wrap"><span class="nn-mono">${esc(m.ma)}</span> <span class="t-cap">${esc(m.ten)}${esc(suffix(m))}</span></td><td class="wrap">${esc(cat.lineNames(m.id) || '—')}</td>
           <td class="num"><b>${fmtPct(a.OEE)}</b></td><td class="num">${fmtPct(a.A)}</td><td class="num">${fmtPct(a.P)}</td><td class="num">${fmtPct(a.Q)}</td>
           <td class="num">${a.MTBF == null ? '—' : fmtNum(a.MTBF / 60, 1)}</td><td class="num">${a.MTTR == null ? '—' : fmtNum(a.MTTR)}</td>
-          <td class="num">${fmtNum(a.stopLoss)}</td><td>${oeeBadge(a.OEE, m.nguong_xanh, m.nguong_vang)}</td></tr>`).join('')}</tbody></table></div></section>`;
+          <td class="num">${fmtNum(a.stopLoss)}</td><td>${oeeBadge(a.OEE, m.nguong_xanh, m.nguong_vang)}</td></tr>`).join('') || '<tr><td colspan="10" class="muted">Không có máy sản xuất trong bộ lọc</td></tr>'}</tbody></table></div></section>
+      ${perKT.length ? `<section class="card section"><div class="card-head"><div><div class="t-h2">Máy phụ trợ</div>
+          <div class="t-cap">Lò hơi, khí nén, nước làm mềm… không có sản phẩm nên không tính OEE / TEEP / OPE. Độ sẵn sàng = giờ chạy / giờ hoạt động yêu cầu (các ca máy ở trạng thái "Hoạt động");
+          MTBF = giờ chạy của chính máy phụ trợ / số lần hỏng hóc.</div></div></div>
+        <div class="nn-row" style="padding:0 0 12px;flex-wrap:wrap">
+          <span class="chip">Độ sẵn sàng <b>&nbsp;${fmtPct(aggKT.A)}</b></span><span class="chip">Giờ hoạt động <b>&nbsp;${fmtNum(aggKT.ppt / 60, 1)}</b></span>
+          <span class="chip">Hỏng hóc <b>&nbsp;${aggKT.bdCount}</b> lần</span><span class="chip">MTBF <b>&nbsp;${aggKT.MTBF == null ? '—' : fmtNum(aggKT.MTBF / 60, 1)}</b> giờ</span>
+          <span class="chip">MTTR <b>&nbsp;${aggKT.MTTR == null ? '—' : fmtNum(aggKT.MTTR)}</b> phút</span></div>
+        <div class="nn-table-wrap"><table class="nn-table"><thead><tr><th>Máy</th><th class="num">Số ca</th><th class="num">Giờ hoạt động</th><th class="num">Dừng (phút)</th><th class="num">Độ sẵn sàng</th>
+          <th class="num">Hỏng hóc (lần)</th><th class="num">MTBF (giờ)</th><th class="num">MTTR (phút)</th></tr></thead><tbody>
+        ${perKT.map(({ m, a }) => `<tr><td class="wrap"><span class="nn-mono">${esc(m.ma)}</span> <span class="t-cap">${esc(m.ten)}${esc(suffix(m))}</span></td><td class="num">${a.kt.n}</td>
+          <td class="num">${fmtNum(a.kt.ppt / 60, 1)}</td><td class="num">${fmtNum(a.kt.stop)}</td><td class="num"><b>${fmtPct(a.kt.A)}</b></td><td class="num">${a.kt.bdCount}</td>
+          <td class="num">${a.kt.MTBF == null ? '—' : fmtNum(a.kt.MTBF / 60, 1)}</td><td class="num">${a.kt.MTTR == null ? '—' : fmtNum(a.kt.MTTR)}</td></tr>`).join('')}</tbody></table></div></section>` : ''}`;
 
     // ---- Biểu đồ
     if (!window.Chart) return;
@@ -192,14 +208,15 @@ export async function render(main, { q }) {
   function exportXlsx() {
     if (!window.XLSX) return toast('Chưa tải được thư viện Excel — kiểm tra mạng', 'danger');
     if (!view) return toast('Không có dữ liệu để xuất', 'warning');
-    const { rows, agg, T, plant, par, perMay, lineRows, tongRows, dates, perDay, withData, nEntries, days } = view;
+    const { rows, agg, T, LD, units, plant, par, perMay, perKT, aggKT, lineRows, tongRows, dates, perDay, withData, nEntries, days } = view;
     const nmName = (r) => S.cat.byId.nha_may[r.nha_may_id]?.ten || '';
     const wb = XLSX.utils.book_new();
     const add = (name, arr) => XLSX.utils.book_append_sheet(wb, xlsxSheet(arr.length ? arr : [{ 'Ghi chú': 'Không có dữ liệu' }]), name);
     add('BoLoc', [...filterSummary().map(([k, v]) => ({ 'Mục': k, 'Giá trị': v })), { 'Mục': 'Lập lúc', 'Giá trị': fmtDateTime(new Date()) }, { 'Mục': 'Người lập', 'Giá trị': S.profile.ho_ten }]);
     add('ChiSo', [
-      ['OEE (%)', r1(agg.OEE)], ['Availability (%)', r1(agg.A)], ['Performance (%)', r1(agg.P)], ['Quality (%)', r1(agg.Q)], ['TEEP (%)', r1(T)],
+      ['OEE (%)', r1(agg.OEE)], ['Availability (%)', r1(agg.A)], ['Performance (%)', r1(agg.P)], ['Quality (%)', r1(agg.Q)], ['TEEP (%)', r1(T)], ['Loading (%)', r1(LD)], ['Số dây chuyền / máy tính TEEP', units],
       [multi() ? 'OPE hệ thống (%)' : 'OPE nhà máy (%)', r1(plant.OEE)], ['MTBF (giờ)', agg.MTBF == null ? null : +(agg.MTBF / 60).toFixed(2)], ['MTTR (phút)', agg.MTTR == null ? null : +agg.MTTR.toFixed(1)],
+      ['Phụ trợ — độ sẵn sàng (%)', r1(aggKT.A)], ['Phụ trợ — MTBF (giờ)', aggKT.MTBF == null ? null : +(aggKT.MTBF / 60).toFixed(2)], ['Phụ trợ — MTTR (phút)', aggKT.MTTR == null ? null : +aggKT.MTTR.toFixed(1)], ['Phụ trợ — số lần hỏng', aggKT.bdCount],
       ['Số phiếu', nEntries], ['Số máy có số liệu', withData], ['Số ngày', days], ['Tổng sản lượng', agg.tong], ['Sản lượng đạt', agg.good], ['Lỗi khởi động', agg.kd], ['Lỗi quá trình', agg.qt],
       ['Thời gian chạy kế hoạch (phút-máy)', Math.round(agg.ppt)], ['Thời gian chạy (phút-máy)', Math.round(agg.run)], ['Thời gian dừng (phút-máy)', Math.round(agg.stopLoss)],
     ].map(([k, v]) => ({ 'Chỉ số': k, 'Giá trị': v })));
@@ -209,6 +226,8 @@ export async function render(main, { q }) {
       'Số phiếu': a.n, 'PPT (phút)': Math.round(a.ppt), 'Chạy (phút)': Math.round(a.run), 'Dừng (phút)': Math.round(a.stopLoss), 'A (%)': r1(a.A), 'P (%)': r1(a.P), 'Q (%)': r1(a.Q), 'OEE (%)': r1(a.OEE),
       'MTBF (giờ)': a.MTBF == null ? null : +(a.MTBF / 60).toFixed(2), 'MTTR (phút)': a.MTTR == null ? null : +a.MTTR.toFixed(1), 'Tổng SL': a.tong, 'SL đạt': a.good, 'Mục tiêu OEE (%)': m.oee_muc_tieu,
     })));
+    if (perKT.length) add('PhuTro', perKT.map(({ m, a }) => ({ 'Nhà máy': nmName(m), 'Mã máy': m.ma, 'Tên máy': m.ten, 'Số ca': a.kt.n, 'Giờ hoạt động': +(a.kt.ppt / 60).toFixed(1),
+      'Dừng (phút)': Math.round(a.kt.stop), 'Độ sẵn sàng (%)': r1(a.kt.A), 'Hỏng hóc (lần)': a.kt.bdCount, 'MTBF (giờ)': a.kt.MTBF == null ? null : +(a.kt.MTBF / 60).toFixed(2), 'MTTR (phút)': a.kt.MTTR == null ? null : +a.kt.MTTR.toFixed(1) })));
     add('DayChuyen', lineRows.map(({ l, last, a, n }) => ({ 'Nhà máy': nmName(l), 'Dây chuyền': l.ten, 'Máy cuối': cat.name('may', last, 'ma'), 'Số phiếu': n, 'OEE (%)': r1(a.OEE), 'A (%)': r1(a.A), 'P (%)': r1(a.P), 'Q (%)': r1(a.Q) })));
     if (tongRows.length) add('DayChuyenTong', tongRows.flatMap(({ t, fin, parts, a }) => parts.map(({ l, r }) => ({
       'Nhà máy': nmName(t), 'Dây chuyền tổng': t.ten, 'OEE tổng (%)': a ? r1(a.OEE) : null, 'Công đoạn': l.ten, 'Công đoạn cuối': l.id === fin?.id ? 'Có' : '',

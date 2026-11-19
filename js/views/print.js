@@ -30,7 +30,7 @@ export async function render(main, { params }) {
           ? `<tr><th>Dây chuyền</th><td colspan="3">${esc(line?.ten || '')}</td><th>Các máy</th><td>${cat.members(rows[0].day_chuyen_id).map((x) => esc(cat.name('may', x.may_id, 'ma'))).join(' → ')}</td></tr>`
           : `<tr><th>Mã máy</th><td class="nn-mono">${esc(m?.ma || '')}</td><th>Tên máy</th><td colspan="3">${esc(m?.ten || '')}</td></tr>`}
         <tr><th>Ngày</th><td>${fmtDate(p.ngay)}</td><th>Ca</th><td>${esc(cat.name('ca', p.ca_id))} (${hm(p.gio_bd)}–${hm(p.gio_kt)})</td><th>Khu vực</th><td>${esc(cat.name('khu_vuc', m?.khu_vuc_id) || '')}</td></tr>
-        <tr><th>Sản phẩm</th><td>${esc(cat.name('san_pham', p.san_pham_id))}</td><th>Tốc độ định mức</th><td>${fmtNum(p.toc_do_dm, 1)} sp/phút</td><th>Nghỉ giữa ca</th><td>${p.nghi_phut} phút</td></tr>
+        <tr><th>Sản phẩm</th><td>${esc(cat.name('san_pham', p.san_pham_id))}</td><th>${cat.theoMe(p) ? 'Thời gian chuẩn' : 'Tốc độ định mức'}</th><td>${cat.theoMe(p) ? `${p.toc_do_dm > 0 ? fmtNum(1 / p.toc_do_dm, 1) : '—'} phút/mẻ` : `${fmtNum(p.toc_do_dm, 1)} sp/phút`}</td><th>Nghỉ giữa ca</th><td>${p.nghi_phut} phút</td></tr>
         <tr><th>Tổng sản lượng</th><td class="num">${fmtNum(p.tong_sl)}</td><th>Lỗi khởi động</th><td class="num">${fmtNum(p.sl_loi_kd)}</td><th>Lỗi quá trình</th><td class="num">${fmtNum(p.sl_loi_qt)}</td></tr>
         <tr><th>SL đạt</th><td class="num"><b>${fmtNum(c.good)}</b></td><th>Thời gian chạy KH</th><td>${fmtMin(c.ppt)}</td><th>Trạng thái</th><td>${phieuBadge(p.trang_thai)}</td></tr>
       </tbody></table></div>

@@ -215,6 +215,13 @@ function form(main, d) {
     if (!d.to_truong_id && tt.length >= 1) d.to_truong_id = tt[0].id;
   };
   const dvt = () => S.cat.byId.san_pham[d.san_pham_id]?.dvt || 'sp';
+  // v1.15: máy đơn tính theo mẻ (bồn nấu, nồi tiệt trùng…): sản lượng = số mẻ, tốc độ nhập thời gian chuẩn phút/mẻ (lưu toc_do_dm = 1 / phút mẻ)
+  const dvtT = (t) => (cat.theoMe(t) ? 'mẻ' : dvt());
+  const phutMe = (v) => (v > 0 ? +(1 / v).toFixed(2) : '');
+  const tocDoField = (t, val, ro, msg, set) => (cat.theoMe(t)
+    ? inputField({ label: 'Thời gian chuẩn / mẻ', value: phutMe(val), unit: 'phút/mẻ', num: 'dec', readonly: ro, req: true, msg,
+      onInput: (v) => { const n = toNum(v); set(n > 0 ? 1 / n : null); } })
+    : inputField({ label: 'Tốc độ định mức', value: val ?? '', unit: `${dvt()}/phút`, num: 'dec', readonly: ro, req: true, msg, onInput: (v) => set(toNum(v)) }));
   /** v1.13: phiếu của bộ phận Đóng gói (theo bộ phận chọn, hoặc theo máy đã chọn) */
   const bpCua = () => d.bo_phan_id || (() => {
     const k = d.multi ? d.muc[0]?.key : targetValue(); if (!k) return '';
@@ -460,9 +467,9 @@ function form(main, d) {
         } }),
     );
     const fixedSpeed = (d.may_id || d.day_chuyen_id) && d.san_pham_id && cat.speedFor(target(), d.san_pham_id) != null;
-    if (!d.multi && !laDG()) g1.append(inputField({ label: 'Tốc độ định mức', value: d.toc_do_dm ?? '', unit: `${dvt()}/phút`, num: 'dec', readonly: !!fixedSpeed, req: true,
-      msg: fixedSpeed ? `Tự điền theo ${isLine() ? 'dây chuyền' : 'máy'} và sản phẩm` : `Chưa khai báo tốc độ cho ${isLine() ? 'dây chuyền' : 'máy'} + sản phẩm này — nhập tạm hoặc báo Admin`,
-      onInput: (v) => { d.toc_do_dm = toNum(v); changed(); } }));
+    if (!d.multi && !laDG()) g1.append(tocDoField(target(), d.toc_do_dm, !!fixedSpeed,
+      fixedSpeed ? `Tự điền theo ${isLine() ? 'dây chuyền' : 'máy'} và sản phẩm` : `Chưa khai báo tốc độ cho ${isLine() ? 'dây chuyền' : 'máy'} + sản phẩm này — nhập tạm hoặc báo Admin`,
+      (v) => { d.toc_do_dm = v; changed(); }));
     g1.append(
       // v1.13: ghi chung -> người vận hành chọn riêng cho từng dây chuyền / máy; người đang đăng nhập là người ghi đại diện
       d.multi ? el(`<div class="nn-field"><span class="nn-label">Người ghi phiếu (đại diện)</span><span class="chip dept" style="height:40px">${esc(S.profile.ho_ten)}</span>
@@ -524,10 +531,10 @@ function form(main, d) {
         onChange: () => { d.sl_loi_kd = 0; d.sl_loi_qt = tongQT(d.loi_dg); changed(); } });
     } else if (!d.multi) {
       g2.append(
-        inputField({ label: 'Tổng sản lượng', value: d.tong_sl ?? '', unit: dvt(), num: 'int', req: true,
-          msg: isLine() ? 'Đếm ở máy cuối chuyền, gồm cả hàng lỗi' : 'Gồm cả hàng lỗi', onInput: (v) => { d.tong_sl = toInt(v); changed(); } }),
-        inputField({ label: 'Tổng SL lỗi', value: (+d.sl_loi_kd || 0) + (+d.sl_loi_qt || 0), unit: dvt(), num: 'int',
-          msg: 'Chi tiết từng lỗi (4 giai đoạn) ghi ở Báo cáo giao ca', onInput: (v) => { d.sl_loi_kd = 0; d.sl_loi_qt = toInt(v) || 0; changed(); } }),
+        inputField({ label: cat.theoMe(target()) ? 'Tổng số mẻ' : 'Tổng sản lượng', value: d.tong_sl ?? '', unit: dvtT(target()), num: 'int', req: true,
+          msg: cat.theoMe(target()) ? 'Số mẻ đã chạy trong ca, gồm cả mẻ lỗi' : isLine() ? 'Đếm ở máy cuối chuyền, gồm cả hàng lỗi' : 'Gồm cả hàng lỗi', onInput: (v) => { d.tong_sl = toInt(v); changed(); } }),
+        inputField({ label: cat.theoMe(target()) ? 'Số mẻ lỗi' : 'Tổng SL lỗi', value: (+d.sl_loi_kd || 0) + (+d.sl_loi_qt || 0), unit: dvtT(target()), num: 'int',
+          msg: cat.theoMe(target()) ? 'Mẻ không đạt (phải xử lý lại / hủy)' : 'Chi tiết từng lỗi (4 giai đoạn) ghi ở Báo cáo giao ca', onInput: (v) => { d.sl_loi_kd = 0; d.sl_loi_qt = toInt(v) || 0; changed(); } }),
       );
     } else {
       // v1.8: mỗi dây chuyền / máy 1 dòng: tổng SL, SL lỗi, tốc độ định mức
@@ -559,10 +566,9 @@ function form(main, d) {
           return;
         }
         fg.append(
-          inputField({ label: 'Tổng SL', value: m.tong_sl ?? '', unit: dvt(), num: 'int', req: true, msg: m.key.startsWith('dc:') ? 'Đếm ở máy cuối chuyền' : '', onInput: (v) => { m.tong_sl = toInt(v); changed(); } }),
-          inputField({ label: 'SL lỗi', value: m.sl_loi_qt ?? 0, unit: dvt(), num: 'int', onInput: (v) => { m.sl_loi_qt = toInt(v) || 0; changed(); } }),
-          inputField({ label: 'Tốc độ định mức', value: m.toc_do_dm ?? '', unit: `${dvt()}/phút`, num: 'dec', readonly: !!fixed, req: true,
-            msg: fixed ? 'Tự điền theo danh mục' : 'Chưa khai tốc độ — nhập tạm', onInput: (v) => { m.toc_do_dm = toNum(v); changed(); } }),
+          inputField({ label: cat.theoMe(tOf(m.key)) ? 'Tổng số mẻ' : 'Tổng SL', value: m.tong_sl ?? '', unit: dvtT(tOf(m.key)), num: 'int', req: true, msg: m.key.startsWith('dc:') ? 'Đếm ở máy cuối chuyền' : '', onInput: (v) => { m.tong_sl = toInt(v); changed(); } }),
+          inputField({ label: cat.theoMe(tOf(m.key)) ? 'Số mẻ lỗi' : 'SL lỗi', value: m.sl_loi_qt ?? 0, unit: dvtT(tOf(m.key)), num: 'int', onInput: (v) => { m.sl_loi_qt = toInt(v) || 0; changed(); } }),
+          tocDoField(tOf(m.key), m.toc_do_dm, !!fixed, fixed ? 'Tự điền theo danh mục' : 'Chưa khai tốc độ — nhập tạm', (v) => { m.toc_do_dm = v; changed(); }),
         );
         box.append(row);
       });
@@ -812,8 +818,8 @@ function form(main, d) {
   /** Bước xem lại trước khi gửi: "← Quay lại sửa" hoặc "Xác nhận gửi" */
   function review() {
     return new Promise((resolve) => {
-      const dongs = d.multi ? d.muc.map((m) => { const c = calcMuc(m); return [mucLabel(m.key), `${mucGio(m).bd}–${mucGio(m).kt} · ${esc(cat.person(m.nguoi_van_hanh_id) || 'chưa chọn người vận hành')} · ${fmtNum(tongMuc(m))} ${dvt()} · lỗi ${fmtNum(m.sl_loi_qt || 0)} · OEE ${fmtPct(c.OEE)}`]; })
-        : [[d.day_chuyen_id ? cat.name('day_chuyen', d.day_chuyen_id) : cat.mayLabel(d.may_id), `${fmtNum(laDG() ? tongChai(d.sl_dg) : d.tong_sl)} ${dvt()} · lỗi ${fmtNum((+d.sl_loi_kd || 0) + (+d.sl_loi_qt || 0))}`]];
+      const dongs = d.multi ? d.muc.map((m) => { const c = calcMuc(m); return [mucLabel(m.key), `${mucGio(m).bd}–${mucGio(m).kt} · ${esc(cat.person(m.nguoi_van_hanh_id) || 'chưa chọn người vận hành')} · ${fmtNum(tongMuc(m))} ${dvtT(tOf(m.key))} · lỗi ${fmtNum(m.sl_loi_qt || 0)} · OEE ${fmtPct(c.OEE)}`]; })
+        : [[d.day_chuyen_id ? cat.name('day_chuyen', d.day_chuyen_id) : cat.mayLabel(d.may_id), `${fmtNum(laDG() ? tongChai(d.sl_dg) : d.tong_sl)} ${laDG() ? dvt() : dvtT(target())} · lỗi ${fmtNum((+d.sl_loi_kd || 0) + (+d.sl_loi_qt || 0))}`]];
       const body = el(`<div class="nn-stack" style="padding:0;gap:8px">
         <div class="t-cap">Kiểm tra lại trước khi gửi. Bấm “Quay lại sửa” để về phiếu sửa tiếp.</div>
         <div class="nn-table-wrap"><table class="nn-table"><tbody>
@@ -836,7 +842,7 @@ function form(main, d) {
     const box = $('[data-preview]', main); if (!box) return;
     if (d.multi) {
       box.innerHTML = `<div style="grid-column:1/-1"><div class="nn-table-wrap"><table class="nn-table"><thead><tr><th>Dây chuyền / máy</th><th class="num">A</th><th class="num">P</th><th class="num">Q</th><th class="num">OEE</th></tr></thead><tbody>
-        ${d.muc.map((m) => { const c = calcMuc(m); const ch = $(`[data-mtong="${m.key}"]`, main); if (ch) ch.textContent = `${fmtNum(tongMuc(m) || 0)} ${dvt()}`; return `<tr><td class="wrap">${esc(mucLabel(m.key))}</td><td class="num">${fmtPct(c.A)}</td><td class="num">${fmtPct(c.P)}</td><td class="num">${fmtPct(c.Q)}</td><td class="num"><b>${fmtPct(c.OEE)}</b></td></tr>`; }).join('')
+        ${d.muc.map((m) => { const c = calcMuc(m); const ch = $(`[data-mtong="${m.key}"]`, main); if (ch) ch.textContent = `${fmtNum(tongMuc(m) || 0)} ${dvtT(tOf(m.key))}`; return `<tr><td class="wrap">${esc(mucLabel(m.key))}</td><td class="num">${fmtPct(c.A)}</td><td class="num">${fmtPct(c.P)}</td><td class="num">${fmtPct(c.Q)}</td><td class="num"><b>${fmtPct(c.OEE)}</b></td></tr>`; }).join('')
           || '<tr><td colspan="5" class="muted">Chưa chọn dây chuyền / máy</td></tr>'}</tbody></table></div></div>`;
       return;
     }
@@ -850,7 +856,7 @@ function form(main, d) {
       kpiCard({ label: 'OEE', value: c.OEE == null ? '—' : fmtNum(c.OEE * 100, 1), unit: '%', status: c.OEE == null ? '' : oeeBadge(c.OEE, m?.nguong_xanh, m?.nguong_vang, true), foot: `<span>Mục tiêu: <b>${fmtNum(m?.oee_muc_tieu ?? 85)}%</b></span>`, small: true }),
       kpiCard({ label: 'Availability', value: c.A == null ? '—' : fmtNum(c.A * 100, 1), unit: '%', foot: `<span>Chạy <b>${fmtMin(c.run)}</b> / ${fmtMin(c.ppt)}</span>`, small: true }),
       kpiCard({ label: 'Performance', value: c.P == null ? '—' : fmtNum(c.P * 100, 1), unit: '%', foot: c.hasSpeed ? `<span>Lý tưởng <b>${fmtMin(c.ideal)}</b></span>` : '<span>Thiếu tốc độ định mức</span>', small: true }),
-      kpiCard({ label: 'Quality', value: c.Q == null ? '—' : fmtNum(c.Q * 100, 1), unit: '%', foot: `<span>Đạt <b>${fmtNum(c.good)}</b> sp</span>`, small: true }),
+      kpiCard({ label: 'Quality', value: c.Q == null ? '—' : fmtNum(c.Q * 100, 1), unit: '%', foot: `<span>Đạt <b>${fmtNum(c.good)}</b> ${d.multi || laDG() ? 'sp' : dvtT(target())}</span>`, small: true }),
     ].join('');
     if (c.P != null && c.P > 1.05) box.insertAdjacentHTML('beforeend', `<div class="nn-alert nn-alert-warning" style="grid-column:1/-1"><span class="nn-alert-icon nn-tone-warning">${icon('warn', 20)}</span><div class="nn-alert-body"><div class="nn-alert-text">Performance trên 100% — kiểm tra lại tổng sản lượng, thời gian dừng hoặc tốc độ định mức</div></div></div>`);
   }
@@ -1066,14 +1072,14 @@ async function detail(main, id) {
     <section class="grid-kpi section">
       ${kpiCard({ label: isGroup ? 'OEE dây chuyền' : 'OEE', value: c.OEE == null ? '—' : fmtNum(c.OEE * 100, 1), unit: '%', status: oeeBadge(c.OEE, m?.nguong_xanh, m?.nguong_vang, true), foot: `<span>Mục tiêu <b>${fmtNum(m?.oee_muc_tieu ?? 85)}%</b></span>` })}
       ${kpiCard({ label: 'Availability', value: fmtNum((c.A ?? 0) * 100, 1), unit: '%', foot: `<span>Chạy <b>${fmtMin(c.run)}</b></span><span>PPT ${fmtMin(c.ppt)}</span>` })}
-      ${kpiCard({ label: 'Performance', value: c.P == null ? '—' : fmtNum(c.P * 100, 1), unit: '%', foot: `<span>Tốc độ <b>${fmtNum(p.toc_do_dm, 1)}</b> ${esc(S.cat.byId.san_pham[p.san_pham_id]?.dvt || 'sp')}/phút</span>` })}
+      ${kpiCard({ label: 'Performance', value: c.P == null ? '—' : fmtNum(c.P * 100, 1), unit: '%', foot: cat.theoMe(p) ? `<span>Chuẩn <b>${p.toc_do_dm > 0 ? fmtNum(1 / p.toc_do_dm, 1) : '—'}</b> phút/mẻ</span>` : `<span>Tốc độ <b>${fmtNum(p.toc_do_dm, 1)}</b> ${esc(S.cat.byId.san_pham[p.san_pham_id]?.dvt || 'sp')}/phút</span>` })}
       ${kpiCard({ label: 'Quality', value: c.Q == null ? '—' : fmtNum(c.Q * 100, 1), unit: '%', foot: `<span>Đạt <b>${fmtNum(c.good)}</b>/${fmtNum(c.tong)}</span>` })}
     </section>
     <section class="card section"><div class="card-head"><div class="t-h2">Thông tin phiếu</div></div>
       <div class="nn-table-wrap"><table class="nn-table"><tbody>
         <tr><th>Sản phẩm</th><td>${esc(cat.name('san_pham', p.san_pham_id) || '—')}</td><th>Giờ ca</th><td>${hm(p.gio_bd)}–${hm(p.gio_kt)} · nghỉ ${p.nghi_phut} phút</td></tr>
-        <tr><th>Vận hành</th><td>${esc(cat.person(p.nguoi_van_hanh_id) || '—')}</td><th>Tổng SL</th><td class="num">${fmtNum(p.tong_sl)}</td></tr>
-        <tr><th>Tổ trưởng / Tổ phó</th><td>${esc(cat.person(p.to_truong_id) || '—')}</td><th>Tổng SL lỗi</th><td class="num">${fmtNum((+p.sl_loi_kd || 0) + (+p.sl_loi_qt || 0))}</td></tr>
+        <tr><th>Vận hành</th><td>${esc(cat.person(p.nguoi_van_hanh_id) || '—')}</td><th>${cat.theoMe(p) ? 'Tổng số mẻ' : 'Tổng SL'}</th><td class="num">${fmtNum(p.tong_sl)}</td></tr>
+        <tr><th>Tổ trưởng / Tổ phó</th><td>${esc(cat.person(p.to_truong_id) || '—')}</td><th>${cat.theoMe(p) ? 'Số mẻ lỗi' : 'Tổng SL lỗi'}</th><td class="num">${fmtNum((+p.sl_loi_kd || 0) + (+p.sl_loi_qt || 0))}</td></tr>
         <tr><th>Kỹ thuật</th><td>${esc(cat.person(p.ky_thuat_id) || '—')}</td><th>Lỗi sản phẩm</th><td class="wrap">${(p.loi_sp || []).length
           ? p.loi_sp.map((x) => `${esc(x.ten)}: <b>${fmtNum(x.so_luong)}</b>${x.ghi_chu ? ` <span class="t-cap">(${esc(x.ghi_chu)})</span>` : ''}`).join('<br>')
           : loiHtml(p.loi_dg) || (+p.sl_loi_kd ? `Khởi động ${fmtNum(p.sl_loi_kd)} · quá trình ${fmtNum(p.sl_loi_qt)}` : '—')}</td></tr>

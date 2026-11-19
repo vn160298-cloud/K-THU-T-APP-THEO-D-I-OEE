@@ -3,7 +3,7 @@
 import { S, sb, cat, can, loadCatalog, rpc, errText } from '../api.js';
 import { lsSet } from '../store.js';
 import { clearCalc } from '../data.js';
-import { GIAI_DOAN, esc, icon, hm, NHOM_TT, LOAI_LOI, MUC_DO, LOI_KHAC, mucDoBadge, VAI_TRO, toNum, sortCat, noAccent, numInput } from '../lib.js';
+import { GIAI_DOAN, esc, icon, hm, NHOM_TT, LOAI_LOI, MUC_DO, LOI_KHAC, mucDoBadge, VAI_TRO, toNum, sortCat, noAccent, numInput, CACH_TINH } from '../lib.js';
 import { el, $, $$, toast, openSheet, confirmBox, inputField, selectField, comboField, segmented, timeField } from '../ui.js';
 import { drawHeader } from '../app.js';
 import { exportCatalog, importCatalog, confirmPin } from './catalog_xlsx.js';
@@ -68,15 +68,20 @@ const CFG = {
   may: () => ({
     title: 'Máy', rows: ofNm('may'),
     cols: [['ma', 'Mã', 'mono'], ['ten', 'Tên máy'], [(r) => cat.name('khu_vuc', r.khu_vuc_id), 'Khu vực'], [(r) => cat.name('bo_phan', r.bo_phan_id), 'Bộ phận'],
-      [(r) => cat.lineNames(r.id) || 'Máy đơn', 'Dây chuyền'], [(r) => `${r.oee_muc_tieu}% · ${r.nguong_vang}/${r.nguong_xanh}`, 'Mục tiêu · ngưỡng'], [(r) => yes(r.hoat_dong), 'Trạng thái', 'html']],
+      [(r) => cat.lineNames(r.id) || 'Máy đơn', 'Dây chuyền'], [(r) => CACH_TINH[r.cach_tinh || 'lien_tuc'], 'Cách tính'],
+      [(r) => `${r.oee_muc_tieu}% · ${r.nguong_vang}/${r.nguong_xanh}`, 'Mục tiêu · ngưỡng'], [(r) => yes(r.hoat_dong), 'Trạng thái', 'html']],
     fields: [['ma', 'Mã máy', 'text', true], ['ten', 'Tên máy', 'text', true], ['khu_vuc_id', 'Khu vực', 'select', false, () => opt(ofNm('khu_vuc'))],
-      ['bo_phan_id', 'Bộ phận', 'select', true, () => opt(ofNm('bo_phan'))], ['oee_muc_tieu', 'OEE mục tiêu (%)', 'number'],
+      ['bo_phan_id', 'Bộ phận', 'select', true, () => opt(ofNm('bo_phan'))],
+      ['cach_tinh', 'Cách tính chỉ số', 'select', true, () => Object.entries(CACH_TINH).map(([k, v]) => ({ value: k, label: v })),
+        'Liên tục: tốc độ sp/phút · Theo mẻ (bồn nấu, nồi tiệt trùng, nồi hấp): thời gian chuẩn phút/mẻ, sản lượng = số mẻ · Phụ trợ (lò hơi, khí nén, nước làm mềm): không tính OEE, chỉ độ sẵn sàng / MTBF / MTTR'],
+      ['oee_muc_tieu', 'OEE mục tiêu (%)', 'number'],
       ['nguong_xanh', 'Ngưỡng xanh từ (%)', 'number'], ['nguong_vang', 'Ngưỡng vàng từ (%)', 'number'], ['thu_tu', 'Thứ tự', 'number'], ['hoat_dong', 'Đang dùng', 'bool']],
-    def: () => ({ nha_may_id: S.nm, oee_muc_tieu: 85, nguong_xanh: 85, nguong_vang: 60, hoat_dong: true, thu_tu: ofNm('may').length + 1 }),
+    def: () => ({ nha_may_id: S.nm, cach_tinh: 'lien_tuc', oee_muc_tieu: 85, nguong_xanh: 85, nguong_vang: 60, hoat_dong: true, thu_tu: ofNm('may').length + 1 }),
     filters: [
       { key: 'kv', label: 'Khu vực', get: (r) => cat.name('khu_vuc', r.khu_vuc_id) || 'Chưa gán khu vực' },
       { key: 'bp', label: 'Bộ phận', get: (r) => cat.name('bo_phan', r.bo_phan_id) || 'Chưa gán bộ phận' },
       { key: 'dc', label: 'Dây chuyền', get: (r) => cat.lineNames(r.id) || 'Máy đơn' },
+      { key: 'ct', label: 'Cách tính', get: (r) => CACH_TINH[r.cach_tinh || 'lien_tuc'] },
     ],
   }),
   san_pham: () => ({
@@ -362,7 +367,7 @@ function editRow(cfg, row, refresh, table = cfg.table) {
       $('input', f).onchange = (e) => { val[k] = e.target.checked; };
       body.append(f);
     } else if (type === 'select') {
-      body.append(selectField({ label, value: val[k] ?? '', req, size: 'md', options: options(), onChange: (v) => { val[k] = v || null; } }));
+      body.append(selectField({ label, value: val[k] ?? '', req, size: 'md', msg: hint, options: options(), onChange: (v) => { val[k] = v || null; } }));
     } else if (type === 'time') {
       body.append(timeField({ label, value: hm(val[k]), req, size: 'md', msg: hint, onInput: (v) => { val[k] = v || null; } }));
     } else {
@@ -695,11 +700,14 @@ function tocDo(box) {
     : donOf(true).filter((m) => mayHop(m, st.sc)).map((m) => ({ value: m.id, label: `${m.ma} · ${m.ten}`, sub: [cat.name('khu_vuc', m.khu_vuc_id), cat.name('bo_phan', m.bo_phan_id)].filter(Boolean).join(' · ') })));
   const T = () => (st.kind === 'chuyen' ? { col: 'day_chuyen_id', assign: 'day_chuyen_san_pham', speed: 'toc_do_day_chuyen' } : { col: 'may_id', assign: 'may_san_pham', speed: 'toc_do' });
   let sel = new Set(), spd = {}, kw = '';
+  // v1.15: máy đơn tính theo mẻ -> nhập thời gian chuẩn phút/mẻ; DB vẫn lưu sp_phut (= mẻ/phút = 1 / phút mẻ)
+  const laMe = (id = st.id) => st.kind === 'may' && cat.cachTinh(id) === 'theo_me';
+  const doi = (x) => (x > 0 ? 1 / x : null);
   const loadState = (id) => {
     const t = T();
     sel = new Set(S.cat[t.assign].filter((x) => x[t.col] === id).map((x) => x.san_pham_id));
     spd = {};
-    for (const x of S.cat[t.speed].filter((y) => y[t.col] === id)) { spd[x.san_pham_id] = numInput(x.sp_phut); sel.add(x.san_pham_id); }
+    for (const x of S.cat[t.speed].filter((y) => y[t.col] === id)) { spd[x.san_pham_id] = numInput(laMe(id) ? +doi(x.sp_phut).toFixed(2) : x.sp_phut); sel.add(x.san_pham_id); }
   };
   if (!targets().some((t) => t.value === st.id)) st.id = targets()[0]?.value || '';
   loadState(st.id);
@@ -720,15 +728,15 @@ function tocDo(box) {
     $('[data-tb]', box).innerHTML = !st.id ? `<div class="empty">${st.sc.kv || st.sc.bp ? 'Không có dây chuyền / máy đơn nào khớp bộ lọc' : st.kind === 'chuyen' ? 'Chưa có dây chuyền — thêm ở tab Dây chuyền' : 'Không có máy đơn'}</div>` : `
       <div class="card-head"><div><div class="t-h2">${esc(targets().find((t) => t.value === st.id)?.label || '')}</div>
         <div class="t-cap">${st.kind === 'chuyen' ? 'Tốc độ của dây chuyền được ưu tiên cho mọi máy trong chuyền.' : `Chỉ dành cho máy đơn.${inLine ? ` Máy thuộc dây chuyền (${esc(inLine)}) dùng tốc độ dây chuyền.` : ''}`}
-        Tích chọn sản phẩm chạy, nhập tốc độ (sp/phút); để trống tốc độ nếu chưa có.</div></div>
+        ${laMe() ? '<b>Máy tính theo mẻ:</b> tích chọn sản phẩm, nhập <b>thời gian chuẩn của 1 mẻ (phút/mẻ)</b> — từ nạp liệu đến xả xong; để trống nếu chưa có.' : 'Tích chọn sản phẩm chạy, nhập tốc độ (sp/phút); để trống tốc độ nếu chưa có.'}</div></div>
         <div class="nn-row" style="padding:0"><button class="nn-btn nn-btn-secondary nn-btn-md" data-copy>${icon('copy', 18)}Sao chép từ nơi khác</button>
         <button class="nn-btn nn-btn-primary nn-btn-md" data-save>${icon('pass', 18)}Lưu</button></div></div>
       <div class="nn-row" style="padding:0 0 12px"><div class="nn-input-wrap nn-input-md" style="flex:1;min-width:200px">${icon('search', 18, 'muted')}<input class="nn-input" placeholder="Tìm sản phẩm…" data-kw value="${esc(kw)}"></div>
         <button class="nn-btn nn-btn-ghost nn-btn-sm" data-all>Chọn tất cả</button><button class="nn-btn nn-btn-ghost nn-btn-sm" data-none>Bỏ chọn tất cả</button>
         <span class="chip" data-count>${sel.size} sản phẩm đã chọn</span></div>
-      <div class="nn-table-wrap"><table class="nn-table"><thead><tr><th style="width:56px">Chạy</th><th>Mã</th><th>Sản phẩm</th><th>ĐVT</th><th style="width:200px">Tốc độ (sp/phút)</th></tr></thead><tbody>
+      <div class="nn-table-wrap"><table class="nn-table"><thead><tr><th style="width:56px">Chạy</th><th>Mã</th><th>Sản phẩm</th><th>ĐVT</th><th style="width:200px">${laMe() ? 'Thời gian chuẩn (phút/mẻ)' : 'Tốc độ (sp/phút)'}</th></tr></thead><tbody>
       ${prods.map((p) => `<tr><td><input type="checkbox" style="width:22px;height:22px" data-sp="${p.id}" ${sel.has(p.id) ? 'checked' : ''}></td><td class="nn-mono">${esc(p.ma)}</td><td class="wrap">${esc(p.ten)}</td><td>${esc(p.dvt || '')}</td>
-        <td><div class="nn-input-wrap nn-input-sm"><input class="nn-input" inputmode="decimal" data-spd="${p.id}" value="${esc(spd[p.id] ?? '')}"><span class="nn-input-unit">sp/phút</span></div></td></tr>`).join('') || '<tr><td colspan="5" class="muted">Không có sản phẩm — thêm ở tab Sản phẩm</td></tr>'}
+        <td><div class="nn-input-wrap nn-input-sm"><input class="nn-input" inputmode="decimal" data-spd="${p.id}" value="${esc(spd[p.id] ?? '')}"><span class="nn-input-unit">${laMe() ? 'phút/mẻ' : 'sp/phút'}</span></div></td></tr>`).join('') || '<tr><td colspan="5" class="muted">Không có sản phẩm — thêm ở tab Sản phẩm</td></tr>'}
       </tbody></table></div>`;
   };
   const updCount = () => { const c = $('[data-count]', box); if (c) c.textContent = `${sel.size} sản phẩm đã chọn`; };
@@ -764,7 +772,7 @@ function tocDo(box) {
     const oldA = S.cat[t.assign].filter((x) => x[t.col] === st.id), oldS = S.cat[t.speed].filter((x) => x[t.col] === st.id);
     const addA = [...sel].filter((id) => !oldA.some((x) => x.san_pham_id === id)).map((id) => ({ [t.col]: st.id, san_pham_id: id }));
     const delA = oldA.filter((x) => !sel.has(x.san_pham_id)).map((x) => x.id);
-    const upS = [...sel].filter((id) => toNum(spd[id]) > 0).map((id) => ({ [t.col]: st.id, san_pham_id: id, sp_phut: toNum(spd[id]) }));
+    const upS = [...sel].filter((id) => toNum(spd[id]) > 0).map((id) => ({ [t.col]: st.id, san_pham_id: id, sp_phut: laMe() ? doi(toNum(spd[id])) : toNum(spd[id]) }));
     const delS = oldS.filter((x) => !sel.has(x.san_pham_id) || !(toNum(spd[x.san_pham_id]) > 0)).map((x) => x.id);
     try {
       if (addA.length) { const { error } = await sb.from(t.assign).insert(addA); if (error) throw error; }
