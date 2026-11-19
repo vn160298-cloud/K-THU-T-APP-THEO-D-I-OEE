@@ -183,6 +183,8 @@ h1, h2, h3 { margin: 0; }
 .gc-tb textarea.gc-ta { resize: none; overflow: hidden; min-height: 36px; line-height: 1.35; padding-top: 7px; padding-bottom: 7px; white-space: pre-wrap; word-break: break-word; }
 .gc-tb .nn-input { min-height: 36px; }
 .gc-auto { display: inline-block; min-width: 48px; padding: 8px 4px; font-variant-numeric: tabular-nums; color: var(--ink); word-break: break-word; }
+/* v1.14: ô tự tính đã sửa tay */
+.nn-input.sl-tay { border-color: var(--warning); background: var(--warning-soft); font-weight: 600; }
 .nn-input-wrap.ta textarea { resize: vertical; }
 
 /* v1.12: trang Thêm trên điện thoại — nhóm thu gọn */
