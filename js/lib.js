@@ -132,7 +132,7 @@ export const icon = (name, size = 20, cls = '') =>
 
 // ---------- Nhãn nghiệp vụ ----------
 export const VAI_TRO = {
-  van_hanh: 'Vận hành', to_truong: 'Tổ trưởng', ky_thuat: 'Kỹ thuật', quan_ly: 'Quản lý', admin: 'Admin',
+  van_hanh: 'Vận hành', to_truong: 'Tổ trưởng', to_pho: 'Tổ phó', ky_thuat: 'Kỹ thuật', quan_ly: 'Quản lý', admin: 'Admin',
 };
 export const TINH_TRANG = {
   cho_xu_ly: { label: 'Chờ xử lý', tone: 'warning', icon: 'hold' },

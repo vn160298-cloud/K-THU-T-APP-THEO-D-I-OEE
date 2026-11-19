@@ -66,8 +66,8 @@ export async function loadProfile(force) {
 }
 
 export const can = {
-  ghiPhieu: () => ['van_hanh', 'to_truong', 'quan_ly', 'admin'].includes(S.profile?.vai_tro),
-  xacNhan: () => ['to_truong', 'quan_ly', 'admin'].includes(S.profile?.vai_tro),
+  ghiPhieu: () => ['van_hanh', 'to_truong', 'to_pho', 'quan_ly', 'admin'].includes(S.profile?.vai_tro),
+  xacNhan: () => ['to_truong', 'to_pho', 'quan_ly', 'admin'].includes(S.profile?.vai_tro),
   suaKhoa: () => ['quan_ly', 'admin'].includes(S.profile?.vai_tro),
   xuLyLoi: () => ['ky_thuat', 'quan_ly', 'admin'].includes(S.profile?.vai_tro),
   admin: () => S.profile?.vai_tro === 'admin',
@@ -75,12 +75,14 @@ export const can = {
   /** v1.5: mở khóa trực tiếp (kèm lý do) và duyệt yêu cầu mở khóa */
   moKhoa: () => ['quan_ly', 'admin'].includes(S.profile?.vai_tro),
   /** v1.5: Vận hành / Tổ trưởng có bộ phận -> chỉ thấy máy, dây chuyền, phiếu của bộ phận mình */
-  boPhanRieng: () => ['van_hanh', 'to_truong'].includes(S.profile?.vai_tro) && !!S.profile?.bo_phan_id,
+  boPhanRieng: () => ['van_hanh', 'to_truong', 'to_pho'].includes(S.profile?.vai_tro) && !!S.profile?.bo_phan_id,
   /** v1.6: lập / nhận báo cáo giao ca */
-  giaoCa: () => ['to_truong', 'quan_ly', 'admin'].includes(S.profile?.vai_tro),
+  giaoCa: () => ['to_truong', 'to_pho', 'quan_ly', 'admin'].includes(S.profile?.vai_tro),
   /** v1.12: báo cáo giao ca Kỹ thuật — kỹ thuật viên cũng lập / nhận được */
-  giaoCaKT: () => ['to_truong', 'quan_ly', 'admin', 'ky_thuat'].includes(S.profile?.vai_tro),
-  nhatKy: () => ['to_truong', 'quan_ly', 'admin'].includes(S.profile?.vai_tro),
+  giaoCaKT: () => ['to_truong', 'to_pho', 'quan_ly', 'admin', 'ky_thuat'].includes(S.profile?.vai_tro),
+  /** v1.14: tổ trưởng / tổ phó ghi phiếu thay người vận hành */
+  toTruong: () => ['to_truong', 'to_pho'].includes(S.profile?.vai_tro),
+  nhatKy: () => ['to_truong', 'to_pho', 'quan_ly', 'admin'].includes(S.profile?.vai_tro),
 };
 
 // ---------- Danh mục ----------
